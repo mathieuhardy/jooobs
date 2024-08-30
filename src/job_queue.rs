@@ -36,8 +36,8 @@ pub enum Cmd {
     Stop,
 }
 
-#[derive(Debug, Default)]
-enum State {
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum State {
     #[default]
     Idle,
     Running,
@@ -77,6 +77,14 @@ impl JobQueue {
             _thread_pool_size,
             ..Default::default()
         })
+    }
+
+    /// Gets the state of the queue.
+    ///
+    /// # Returns
+    /// A value of the enum `State`.
+    pub fn state(&self) -> State {
+        self.state
     }
 
     /// Starts the job queue with async support.

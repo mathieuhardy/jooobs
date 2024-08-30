@@ -39,6 +39,7 @@ mod tests {
         let (t, t2) = toggle!();
 
         jq.start().unwrap();
+        assert_eq!(jq.state(), State::Running);
 
         let routine = Box::new(move || {
             set_toggle!(t2);
@@ -48,5 +49,9 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
         check_toggle!(t);
+
+        jq.stop().await.unwrap();
+        jq.join().await.unwrap();
+        assert_eq!(jq.state(), State::Stopped);
     }
 }
