@@ -6,3 +6,4 @@ edition = "2021"
 [dependencies]
 tokio = { version = "1.39.2", default-features = false, features = ["macros", "rt", "sync", "time"] }
 thiserror = { version = "1.0.63", default-features = false }
+uuid = { version = "1.10.0", default-features = false, features = ["rng", "std", "v1"] }

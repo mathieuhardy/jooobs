@@ -1,57 +1,59 @@
-//use thiserror::Error;
-use tokio::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc::{self, Sender};
+use uuid::Uuid;
 
 use crate::prelude::*;
 
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error("Queue is already running")]
-    AlreadyRunning,
-    #[error("Invalid message queue size")]
-    InvalidMessageQueueSize,
-    #[error("Invalid thread pool size")]
-    InvalidThreadPoolSize,
-    #[error(transparent)]
-    Join(#[from] tokio::task::JoinError),
-    #[error("Missing channel for communicating with thread")]
-    MissingChannel,
-    #[error("Missing thread's join handle")]
-    MissingJoinHandle,
-    #[error("Queue is not started")]
-    NotStarted,
-    #[error("Queue is not stopping")]
-    NotStopping,
-    #[error("Queue is stopped")]
-    Stopped,
-    #[error(transparent)]
-    MessageSend(#[from] tokio::sync::mpsc::error::SendError<Message>),
-}
-
+/// Type of messages that can be sent to the job queue.
 pub enum Message {
+    /// Command message that change the state of the queue.
     Command(Cmd),
+
+    /// Job message used to push a new job to be processed.
     Job(Job),
 }
 
+/// Commands handled by the thread of the job queue.
 pub enum Cmd {
+    /// Stop the job queue.
     Stop,
 }
 
+/// States of the tread running the job queue.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum State {
+    /// Idle (i.e. waiting to be started).
     #[default]
     Idle,
+
+    /// Running and processing jobs.
     Running,
+
+    /// Going to stop.
     Stopping,
+
+    /// Stopped indefinitely.
     Stopped,
 }
 
-#[derive(Debug, Default)]
 pub struct JobQueue {
+    /// Maximum number of messages that can be in the queue at the same time.
     message_queue_size: usize,
+
+    /// Number of threads to spawn in the pool.
     _thread_pool_size: usize,
+
+    /// State of the job queue.
     state: State,
+
+    /// Channel used to send messages to the thread of the job queue.
     tx: Option<Sender<Message>>,
+
+    /// Join handle used to wait the thread of the job queue.
     join_handle: Option<tokio::task::JoinHandle<()>>,
+
+    /// Backend used to store the list of jobs with their results.
+    backend: SharedBackend,
 }
 
 impl JobQueue {
@@ -75,7 +77,10 @@ impl JobQueue {
         Ok(Self {
             message_queue_size,
             _thread_pool_size,
-            ..Default::default()
+            state: State::default(),
+            tx: None,
+            join_handle: None,
+            backend: Arc::new(Mutex::new(Box::new(MemoryBackend::new()))),
         })
     }
 
@@ -87,6 +92,14 @@ impl JobQueue {
         self.state
     }
 
+    /// Sets the backend used by the queue to store jobs and their results.
+    ///
+    /// # Arguments:
+    /// * `backend` - Backend instance that will replace the current one.
+    pub fn set_backend(&mut self, backend: impl Backend + 'static) {
+        self.backend = Arc::new(Mutex::new(Box::new(backend)));
+    }
+
     /// Starts the job queue with async support.
     ///
     /// # Errors
@@ -94,11 +107,14 @@ impl JobQueue {
     pub fn start(&mut self) -> Result<(), Error> {
         self.try_starting()?;
 
-        let mut rx = self.setup_channel();
+        let (tx, mut rx) = mpsc::channel(self.message_queue_size);
+        self.tx = Some(tx);
+
+        let backend = self.backend.clone();
 
         let handle = tokio::spawn(async move {
             while let Some(msg) = rx.recv().await {
-                if JobQueue::process_msg(msg) {
+                if JobQueue::process_message(backend.clone(), msg) {
                     break;
                 }
             }
@@ -154,12 +170,37 @@ impl JobQueue {
     ///
     /// # Errors
     /// One of `Error` enum.
-    pub async fn enqueue(&self, job: Job) -> Result<(), Error> {
+    pub async fn enqueue(&self, job: Job) -> Result<Uuid, Error> {
         if let Some(tx) = &self.tx {
-            tx.send(Message::Job(job)).await.map_err(Into::into)
+            let job_id = job.id();
+
+            tx.send(Message::Job(job))
+                .await
+                .map_err(Into::<Error>::into)?;
+
+            Ok(job_id)
         } else {
             Err(Error::MissingChannel)
         }
+    }
+
+    /// Get the status of a job.
+    ///
+    /// # Arguments
+    /// * `id` - ID of the job to be inspected.
+    ///
+    /// # Returns
+    /// The status of the job.
+    ///
+    /// # Errors
+    /// One of `Error` enum.
+    pub fn job_status(&self, id: Uuid) -> Result<Status, Error> {
+        let backend = self
+            .backend
+            .lock()
+            .map_err(|e| Error::CannotAccessBackend(e.to_string()))?;
+
+        backend.status(id)
     }
 
     /// Checks if the current state allows to start the queue.
@@ -198,16 +239,6 @@ impl JobQueue {
         }
     }
 
-    /// Setups the channels for communicatio with the thread of the queue.
-    ///
-    /// # Returns
-    /// The receiver channel use to start the consumer thread.
-    fn setup_channel(&mut self) -> Receiver<Message> {
-        let (tx, rx) = mpsc::channel(self.message_queue_size);
-        self.tx = Some(tx);
-        rx
-    }
-
     /// Processes a message (can be a command or job).
     ///
     /// # Arguments
@@ -215,11 +246,11 @@ impl JobQueue {
     ///
     /// # Returns
     /// `True` if the queue must be stopped, `False` otherwise.
-    fn process_msg(msg: Message) -> bool {
+    fn process_message(backend: SharedBackend, msg: Message) -> bool {
         match msg {
             Message::Command(Cmd::Stop) => true,
             Message::Job(job) => {
-                JobQueue::process_job(job);
+                let _ = JobQueue::process_job(backend, job);
                 false
             }
         }
@@ -228,10 +259,20 @@ impl JobQueue {
     /// Processes a job.
     ///
     /// # Arguments
+    /// * `backend` - Backend instance used to process the jobs.
     /// * `job` - Job to be processed.
-    ///
-    /// TODO: run in thread pool
-    fn process_job(job: Job) {
-        job.run();
+    fn process_job(backend: SharedBackend, job: Job) -> Result<(), Error> {
+        let mut backend = backend
+            .lock()
+            .map_err(|e| Error::CannotAccessBackend(e.to_string()))?;
+
+        let job_id = job.id();
+        backend.schedule(job)?;
+
+        backend.set_status(job_id, Status::Running)?;
+        backend.run(job_id)?;
+        backend.set_status(job_id, Status::Finished)?;
+
+        Ok(())
     }
 }
