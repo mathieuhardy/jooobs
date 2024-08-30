@@ -1,10 +1,17 @@
+pub mod job;
 pub mod job_queue;
+pub mod prelude;
+
+// TODO: Result for routine returns
+// TODO: Job ID
+// TODO: Result storage
+// TODO: Get status of a job
 
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, Mutex};
 
-    use crate::job_queue::*;
+    use crate::prelude::*;
 
     macro_rules! toggle {
         () => {{
@@ -33,12 +40,12 @@ mod tests {
 
         jq.start().unwrap();
 
-        let job = Box::new(move || {
+        let routine = Box::new(move || {
             set_toggle!(t2);
         });
 
-        jq.enqueue(Job { callback: job }).await.unwrap();
-        tokio::time::sleep(tokio::time::Duration::from_millis(00)).await;
+        jq.enqueue(Job::new(routine)).await.unwrap();
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
         check_toggle!(t);
     }

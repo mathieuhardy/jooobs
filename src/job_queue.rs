@@ -1,6 +1,8 @@
 //use thiserror::Error;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 
+use crate::prelude::*;
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Queue is already running")]
@@ -41,10 +43,6 @@ enum State {
     Running,
     Stopping,
     Stopped,
-}
-
-pub struct Job {
-    pub callback: Box<dyn FnOnce() + Send>,
 }
 
 #[derive(Debug, Default)]
@@ -226,6 +224,6 @@ impl JobQueue {
     ///
     /// TODO: run in thread pool
     fn process_job(job: Job) {
-        (job.callback)();
+        job.run();
     }
 }
