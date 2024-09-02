@@ -8,8 +8,11 @@ use crate::error::Error;
 /// List of statuses of a job.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Status {
+    /// Job is not ready and not scheduled.
+    NotReady,
+
     /// Job is not running yet but ready to be started.
-    Idle,
+    Ready,
 
     /// Job is currently running.
     Running,
@@ -69,7 +72,7 @@ impl Job {
         Self {
             id: Uuid::now_v1(&[1, 2, 3, 4, 5, 6]),
             routine,
-            status: Status::Idle,
+            status: Status::NotReady,
             payload: Payload {
                 timestamps: Timestamps {
                     enqueued: SystemTime::now(),
@@ -106,10 +109,20 @@ impl Job {
     /// One of `Error` enum.
     pub fn set_status(&mut self, status: Status) -> Result<(), Error> {
         match status {
-            Status::Idle => return Err(Error::InvalidJobStatusTransition((self.status, status))),
+            Status::NotReady => {
+                return Err(Error::InvalidJobStatusTransition((self.status, status)))
+            }
+
+            Status::Ready => {
+                if self.status != Status::NotReady {
+                    return Err(Error::InvalidJobStatusTransition((self.status, status)));
+                } else {
+                    self.payload.timestamps.enqueued = SystemTime::now();
+                }
+            }
 
             Status::Running => {
-                if self.status != Status::Idle {
+                if self.status != Status::Ready {
                     return Err(Error::InvalidJobStatusTransition((self.status, status)));
                 } else {
                     self.payload.timestamps.started = SystemTime::now();

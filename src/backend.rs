@@ -24,7 +24,9 @@ pub struct MemoryBackend {
 }
 
 impl Backend for MemoryBackend {
-    fn schedule(&mut self, job: Job) -> Result<(), Error> {
+    fn schedule(&mut self, mut job: Job) -> Result<(), Error> {
+        job.set_status(Status::Ready)?;
+
         self.jobs.insert(job.id(), job);
 
         Ok(())
