@@ -1,3 +1,5 @@
+use serde::Serialize;
+use serde_json::Value;
 use std::time::SystemTime;
 use uuid::Uuid;
 
@@ -20,6 +22,9 @@ pub enum Status {
 pub struct Payload {
     /// Timestamps for every step of the job.
     pub timestamps: Timestamps,
+
+    /// Result of the job.
+    pub result: Value,
 }
 
 /// Timestamps of every steps of the lifecycle of a job.
@@ -34,13 +39,16 @@ pub struct Timestamps {
     pub finished: SystemTime,
 }
 
+/// Routine that will be executed when starting the job.
+type Routine = Box<dyn Fn() + Sync + Send>;
+
 /// Description of a job.
 pub struct Job {
     /// Unique identifier of the job.
     id: Uuid,
 
     /// The routine called when running.
-    routine: Box<dyn Fn() + Sync + Send>,
+    routine: Routine,
 
     /// Status of the job.
     status: Status,
@@ -57,7 +65,7 @@ impl Job {
     ///
     /// # Returns
     /// An `Job` instance.
-    pub fn new(routine: Box<dyn Fn() + Sync + Send>) -> Self {
+    pub fn new(routine: Routine) -> Self {
         Self {
             id: Uuid::now_v1(&[1, 2, 3, 4, 5, 6]),
             routine,
@@ -68,6 +76,7 @@ impl Job {
                     started: SystemTime::UNIX_EPOCH,
                     finished: SystemTime::UNIX_EPOCH,
                 },
+                result: Value::default(),
             },
         }
     }
@@ -117,6 +126,22 @@ impl Job {
         }
 
         self.status = status;
+
+        Ok(())
+    }
+
+    /// Set the result of the job that will be stored as `serde_json::Value`.
+    ///
+    /// # Arguments
+    /// * `value` - Serializable value to be stored.
+    ///
+    /// # Errors
+    /// One of `Error` enum.
+    pub fn set_result<T>(&mut self, value: T) -> Result<(), Error>
+    where
+        T: Serialize,
+    {
+        self.payload.result = serde_json::to_value(value)?;
 
         Ok(())
     }

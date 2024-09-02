@@ -22,6 +22,8 @@ pub enum Error {
     #[error(transparent)]
     Join(#[from] tokio::task::JoinError),
     #[error(transparent)]
+    JsonSerialization(#[from] serde_json::Error),
+    #[error(transparent)]
     MessageSend(#[from] tokio::sync::mpsc::error::SendError<Message>),
     #[error("Missing channel for communicating with thread")]
     MissingChannel,
