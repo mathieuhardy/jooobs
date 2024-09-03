@@ -1,9 +1,10 @@
 use serde::Serialize;
 use serde_json::Value;
+use std::future::Future;
+use std::pin::Pin;
 use std::time::SystemTime;
-use uuid::Uuid;
 
-use crate::error::Error;
+use crate::prelude::*;
 
 /// List of statuses of a job.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -42,8 +43,14 @@ pub struct Timestamps {
     pub finished: SystemTime,
 }
 
+/// Routine error.
+pub type RoutineResult = Result<Value, JobError>;
+
 /// Routine that will be executed when starting the job.
-type Routine = Box<dyn Fn() + Sync + Send>;
+type Routine =
+    Box<dyn FnOnce() -> Pin<Box<dyn Future<Output = RoutineResult> + Send>> + Send + Sync>;
+// TODO: remove
+//Box<dyn Fn() -> Box<dyn Future<Output = RoutineResult> + Unpin + Send> + Send + Sync>;
 
 /// Description of a job.
 pub struct Job {
@@ -160,7 +167,9 @@ impl Job {
     }
 
     /// Call the underlying routine of the job.
-    pub fn run(&self) {
-        (self.routine)();
+    pub async fn run(&mut self) -> Result<(), Error> {
+        let result = (self.routine)().await?;
+
+        self.set_result(result)
     }
 }

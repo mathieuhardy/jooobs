@@ -11,6 +11,8 @@ pub enum Error {
     CannotAccessBackend(String),
     #[error("{0}")]
     Custom(String),
+    #[error(transparent)]
+    GenericError(#[from] Box<dyn std::error::Error>),
     #[error("Invalid job status transition: {0:?}")]
     InvalidJobStatusTransition((Status, Status)),
     #[error("Invalid message queue size")]
@@ -36,3 +38,5 @@ pub enum Error {
     #[error("Queue is stopped")]
     Stopped,
 }
+
+pub type JobError = Box<dyn std::error::Error>;

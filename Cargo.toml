@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+async-trait = { version = "0.1.82", default-features = false }
 serde = { version = "1.0.209", default-features = false }
 serde_json = { version = "1.0.127", default-features = false, features = [ "std" ] }
 tokio = { version = "1.39.2", default-features = false, features = ["macros", "rt", "sync", "time"] }

@@ -1,7 +1,8 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::sync::mpsc::{self, Sender};
-use uuid::Uuid;
+use tokio::sync::Mutex;
 
+use crate::memory_backend::*;
 use crate::prelude::*;
 
 /// Type of messages that can be sent to the job queue.
@@ -114,7 +115,7 @@ impl JobQueue {
 
         let handle = tokio::spawn(async move {
             while let Some(msg) = rx.recv().await {
-                if JobQueue::process_message(backend.clone(), msg) {
+                if JobQueue::process_message(backend.clone(), msg).await {
                     break;
                 }
             }
@@ -194,11 +195,9 @@ impl JobQueue {
     ///
     /// # Errors
     /// One of `Error` enum.
-    pub fn job_status(&self, id: Uuid) -> Result<Status, Error> {
-        let backend = self
-            .backend
-            .lock()
-            .map_err(|e| Error::CannotAccessBackend(e.to_string()))?;
+    pub async fn job_status(&self, id: Uuid) -> Result<Status, Error> {
+        let backend = self.backend.lock().await;
+        //.map_err(|e| Error::CannotAccessBackend(e.to_string()))?;
 
         backend.status(id)
     }
@@ -246,11 +245,11 @@ impl JobQueue {
     ///
     /// # Returns
     /// `True` if the queue must be stopped, `False` otherwise.
-    fn process_message(backend: SharedBackend, msg: Message) -> bool {
+    async fn process_message(backend: SharedBackend, msg: Message) -> bool {
         match msg {
             Message::Command(Cmd::Stop) => true,
             Message::Job(job) => {
-                let _ = JobQueue::process_job(backend, job);
+                let _ = JobQueue::process_job(backend, job).await;
                 false
             }
         }
@@ -261,16 +260,15 @@ impl JobQueue {
     /// # Arguments
     /// * `backend` - Backend instance used to process the jobs.
     /// * `job` - Job to be processed.
-    fn process_job(backend: SharedBackend, job: Job) -> Result<(), Error> {
-        let mut backend = backend
-            .lock()
-            .map_err(|e| Error::CannotAccessBackend(e.to_string()))?;
+    async fn process_job(backend: SharedBackend, job: Job) -> Result<(), Error> {
+        let mut backend = backend.lock().await;
+        //.map_err(|e| Error::CannotAccessBackend(e.to_string()))?;
 
         let job_id = job.id();
         backend.schedule(job)?;
 
         backend.set_status(job_id, Status::Running)?;
-        backend.run(job_id)?;
+        backend.run(job_id).await?;
         backend.set_status(job_id, Status::Finished)?;
 
         Ok(())

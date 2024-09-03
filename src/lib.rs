@@ -2,11 +2,13 @@ pub mod backend;
 pub mod error;
 pub mod job;
 pub mod job_queue;
+pub mod memory_backend;
 pub mod prelude;
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
 
     use crate::prelude::*;
 
@@ -20,13 +22,13 @@ mod tests {
 
     macro_rules! set_toggle {
         ($ident: expr) => {{
-            *$ident.lock().unwrap() = true;
+            *$ident.lock().await = true;
         }};
     }
 
     macro_rules! check_toggle {
         ($ident: expr) => {{
-            assert!(*$ident.lock().unwrap());
+            assert!(*$ident.lock().await);
         }};
     }
 
@@ -38,8 +40,15 @@ mod tests {
         jq.start().unwrap();
         assert_eq!(jq.state(), State::Running);
 
-        let routine = Box::new(move || {
-            set_toggle!(t2);
+        let routine = Box::new(|| {
+            let routine_output = Box::pin(async move {
+                set_toggle!(t2);
+
+                Ok(serde_json::Value::default())
+            });
+
+            routine_output
+                as std::pin::Pin<Box<dyn std::future::Future<Output = RoutineResult> + Send>>
         });
 
         jq.enqueue(Job::new(routine)).await.unwrap();
