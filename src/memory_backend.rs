@@ -3,10 +3,6 @@ use std::collections::BTreeMap;
 
 use crate::prelude::*;
 
-//struct Job {
-//id: Uuid,
-//}
-
 /// A default backend implementation that stores everything in memory.
 #[derive(Default)]
 pub struct MemoryBackend {
@@ -15,10 +11,11 @@ pub struct MemoryBackend {
 }
 
 #[async_trait]
-impl Backend for MemoryBackend {
-    fn schedule(&mut self, mut job: Job) -> Result<(), Error> {
-        job.set_status(Status::Ready)?;
-
+impl<RoutineType> Backend<RoutineType> for MemoryBackend
+where
+    RoutineType: AsyncRoutine + Sync,
+{
+    fn schedule(&mut self, job: Job) -> Result<(), Error> {
         self.jobs.insert(job.id(), job);
 
         Ok(())
@@ -26,7 +23,7 @@ impl Backend for MemoryBackend {
 
     async fn run(&mut self, id: Uuid) -> Result<(), Error> {
         if let Some(job) = self.jobs.get_mut(&id) {
-            job.run().await?;
+            job.run::<RoutineType>().await?;
 
             Ok(())
         } else {

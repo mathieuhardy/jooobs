@@ -1,15 +1,15 @@
-use serde::Serialize;
+use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::future::Future;
-use std::pin::Pin;
 use std::time::SystemTime;
 
 use crate::prelude::*;
 
 /// List of statuses of a job.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize, Serialize)]
 pub enum Status {
     /// Job is not ready and not scheduled.
+    #[default]
     NotReady,
 
     /// Job is not running yet but ready to be started.
@@ -23,6 +23,7 @@ pub enum Status {
 }
 
 /// Structure used to store timestamps and result of the job.
+#[derive(Deserialize, Serialize)]
 pub struct Payload {
     /// Timestamps for every step of the job.
     pub timestamps: Timestamps,
@@ -32,6 +33,7 @@ pub struct Payload {
 }
 
 /// Timestamps of every steps of the lifecycle of a job.
+#[derive(Deserialize, Serialize)]
 pub struct Timestamps {
     /// Timestamp at which the job is enqueued.
     pub enqueued: SystemTime,
@@ -43,22 +45,23 @@ pub struct Timestamps {
     pub finished: SystemTime,
 }
 
-/// Routine error.
-pub type RoutineResult = Result<Value, JobError>;
+// TODO
+//pub type RoutineResult = Result<Value, JobError>;
 
-/// Routine that will be executed when starting the job.
-type Routine =
-    Box<dyn FnOnce() -> Pin<Box<dyn Future<Output = RoutineResult> + Send>> + Send + Sync>;
-// TODO: remove
-//Box<dyn Fn() -> Box<dyn Future<Output = RoutineResult> + Unpin + Send> + Send + Sync>;
+/// Trait that must be derived for the list of possible routines handled by the jobs.
+#[async_trait]
+pub trait AsyncRoutine: for<'a> Deserialize<'a> + Serialize + Send {
+    async fn call(&self);
+}
 
 /// Description of a job.
+#[derive(Deserialize, Serialize)]
 pub struct Job {
     /// Unique identifier of the job.
     id: Uuid,
 
     /// The routine called when running.
-    routine: Routine,
+    routine: String,
 
     /// Status of the job.
     status: Status,
@@ -75,10 +78,10 @@ impl Job {
     ///
     /// # Returns
     /// An `Job` instance.
-    pub fn new(routine: Routine) -> Self {
+    pub fn new(routine: impl AsyncRoutine) -> Self {
         Self {
             id: Uuid::now_v1(&[1, 2, 3, 4, 5, 6]),
-            routine,
+            routine: serde_json::to_string(&routine).unwrap(), // TODO
             status: Status::NotReady,
             payload: Payload {
                 timestamps: Timestamps {
@@ -167,8 +170,10 @@ impl Job {
     }
 
     /// Call the underlying routine of the job.
-    pub async fn run(&mut self) -> Result<(), Error> {
-        let result = (self.routine)().await?;
+    pub async fn run<R: AsyncRoutine>(&mut self) -> Result<(), Error> {
+        let routine: R = serde_json::from_str(&self.routine)?;
+
+        let result = routine.call().await;
 
         self.set_result(result)
     }
