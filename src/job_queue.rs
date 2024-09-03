@@ -1,3 +1,4 @@
+use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::mpsc::{self, Sender};
 use tokio::sync::Mutex;
@@ -59,7 +60,7 @@ pub struct JobQueue<RoutineType> {
 
 impl<RoutineType> JobQueue<RoutineType>
 where
-    RoutineType: AsyncRoutine + Sync + 'static,
+    RoutineType: Routine + Sync + 'static,
 {
     /// Creates a new job queue.
     ///
@@ -202,6 +203,23 @@ where
         let backend = self.backend.lock().await;
 
         backend.status(id)
+    }
+
+    /// Get the result of a job.
+    ///
+    /// # Arguments
+    /// * `id` - ID of the job to be inspected.
+    ///
+    /// # Returns
+    /// The result of the job as `serde_json::Value`.
+    ///
+    /// # Errors
+    /// One of `Error` enum.
+    pub async fn job_result(&self, id: Uuid) -> Result<Value, Error> {
+        let backend = self.backend.lock().await;
+
+        let value = backend.result(id)?;
+        Ok(value.clone())
     }
 
     /// Checks if the current state allows to start the queue.

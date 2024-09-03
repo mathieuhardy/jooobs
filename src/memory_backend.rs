@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use serde_json::Value;
 use std::collections::BTreeMap;
 
 use crate::prelude::*;
@@ -13,7 +14,7 @@ pub struct MemoryBackend {
 #[async_trait]
 impl<RoutineType> Backend<RoutineType> for MemoryBackend
 where
-    RoutineType: AsyncRoutine + Sync,
+    RoutineType: Routine + Sync,
 {
     fn schedule(&mut self, job: Job) -> Result<(), Error> {
         self.jobs.insert(job.id(), job);
@@ -43,6 +44,10 @@ where
         } else {
             Err(Error::JobNotFound(id))
         }
+    }
+
+    fn result(&self, id: Uuid) -> Result<&Value, Error> {
+        Ok(self.jobs.get(&id).ok_or(Error::JobNotFound(id))?.result())
     }
 }
 

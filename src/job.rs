@@ -45,13 +45,10 @@ pub struct Timestamps {
     pub finished: SystemTime,
 }
 
-// TODO
-//pub type RoutineResult = Result<Value, JobError>;
-
 /// Trait that must be derived for the list of possible routines handled by the jobs.
 #[async_trait]
-pub trait AsyncRoutine: for<'a> Deserialize<'a> + Serialize + Send {
-    async fn call(&self);
+pub trait Routine: for<'a> Deserialize<'a> + Serialize + Send {
+    async fn call(&self) -> Result<Value, Error>;
 }
 
 /// Description of a job.
@@ -78,10 +75,13 @@ impl Job {
     ///
     /// # Returns
     /// An `Job` instance.
-    pub fn new(routine: impl AsyncRoutine) -> Self {
-        Self {
+    ///
+    /// # Errors
+    /// One of `Error` enum.
+    pub fn new(routine: impl Routine) -> Result<Self, Error> {
+        Ok(Self {
             id: Uuid::now_v1(&[1, 2, 3, 4, 5, 6]),
-            routine: serde_json::to_string(&routine).unwrap(), // TODO
+            routine: serde_json::to_string(&routine)?,
             status: Status::NotReady,
             payload: Payload {
                 timestamps: Timestamps {
@@ -91,7 +91,7 @@ impl Job {
                 },
                 result: Value::default(),
             },
-        }
+        })
     }
 
     /// Get the unique identifier of the job.
@@ -153,6 +153,14 @@ impl Job {
         Ok(())
     }
 
+    /// Get the result of the job.
+    ///
+    /// # Returns
+    /// The result of the job.
+    pub fn result(&self) -> &Value {
+        &self.payload.result
+    }
+
     /// Set the result of the job that will be stored as `serde_json::Value`.
     ///
     /// # Arguments
@@ -170,10 +178,10 @@ impl Job {
     }
 
     /// Call the underlying routine of the job.
-    pub async fn run<R: AsyncRoutine>(&mut self) -> Result<(), Error> {
-        let routine: R = serde_json::from_str(&self.routine)?;
+    pub async fn run<T: Routine>(&mut self) -> Result<(), Error> {
+        let routine: T = serde_json::from_str(&self.routine)?;
 
-        let result = routine.call().await;
+        let result = routine.call().await?;
 
         self.set_result(result)
     }
