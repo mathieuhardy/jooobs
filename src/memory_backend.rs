@@ -22,32 +22,40 @@ where
         Ok(())
     }
 
-    async fn run(&mut self, id: Uuid) -> Result<(), Error> {
-        if let Some(job) = self.jobs.get_mut(&id) {
+    async fn run(&mut self, id: &Uuid) -> Result<(), Error> {
+        if let Some(job) = self.jobs.get_mut(id) {
             job.run::<RoutineType>().await?;
 
             Ok(())
         } else {
-            Err(Error::JobNotFound(id))
+            Err(Error::JobNotFound(id.to_owned()))
         }
     }
 
-    fn status(&self, id: Uuid) -> Result<Status, Error> {
-        Ok(self.jobs.get(&id).ok_or(Error::JobNotFound(id))?.status())
+    fn status(&self, id: &Uuid) -> Result<Status, Error> {
+        Ok(self
+            .jobs
+            .get(id)
+            .ok_or(Error::JobNotFound(id.to_owned()))?
+            .status())
     }
 
-    fn set_status(&mut self, id: Uuid, status: Status) -> Result<(), Error> {
-        if let Some(job) = self.jobs.get_mut(&id) {
+    fn set_status(&mut self, id: &Uuid, status: Status) -> Result<(), Error> {
+        if let Some(job) = self.jobs.get_mut(id) {
             job.set_status(status)?;
 
             Ok(())
         } else {
-            Err(Error::JobNotFound(id))
+            Err(Error::JobNotFound(id.to_owned()))
         }
     }
 
-    fn result(&self, id: Uuid) -> Result<&Value, Error> {
-        Ok(self.jobs.get(&id).ok_or(Error::JobNotFound(id))?.result())
+    fn result(&self, id: &Uuid) -> Result<&Value, Error> {
+        Ok(self
+            .jobs
+            .get(id)
+            .ok_or(Error::JobNotFound(id.to_owned()))?
+            .result())
     }
 }
 

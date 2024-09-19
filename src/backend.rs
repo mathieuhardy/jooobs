@@ -12,13 +12,13 @@ pub trait Backend<Routine>: Send {
     // TODO: document
     fn schedule(&mut self, job: Job) -> Result<(), Error>;
     // TODO: document
-    async fn run(&mut self, id: Uuid) -> Result<(), Error>;
+    async fn run(&mut self, id: &Uuid) -> Result<(), Error>;
     // TODO: document
-    fn status(&self, id: Uuid) -> Result<Status, Error>;
+    fn status(&self, id: &Uuid) -> Result<Status, Error>;
     // TODO: document
-    fn set_status(&mut self, id: Uuid, status: Status) -> Result<(), Error>;
+    fn set_status(&mut self, id: &Uuid, status: Status) -> Result<(), Error>;
     // TODO: document
-    fn result(&self, id: Uuid) -> Result<&Value, Error>;
+    fn result(&self, id: &Uuid) -> Result<&Value, Error>;
 }
 
 /// Type used to share the backend instance across threads.

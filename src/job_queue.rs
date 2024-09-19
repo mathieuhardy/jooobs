@@ -199,7 +199,7 @@ where
     ///
     /// # Errors
     /// One of `Error` enum.
-    pub async fn job_status(&self, id: Uuid) -> Result<Status, Error> {
+    pub async fn job_status(&self, id: &Uuid) -> Result<Status, Error> {
         let backend = self.backend.lock().await;
 
         backend.status(id)
@@ -215,7 +215,7 @@ where
     ///
     /// # Errors
     /// One of `Error` enum.
-    pub async fn job_result(&self, id: Uuid) -> Result<Value, Error> {
+    pub async fn job_result(&self, id: &Uuid) -> Result<Value, Error> {
         let backend = self.backend.lock().await;
 
         let value = backend.result(id)?;
@@ -285,11 +285,11 @@ where
 
         let job_id = job.id();
         backend.schedule(job)?;
-        backend.set_status(job_id, Status::Ready)?;
+        backend.set_status(&job_id, Status::Ready)?;
 
-        backend.set_status(job_id, Status::Running)?;
-        backend.run(job_id).await?;
-        backend.set_status(job_id, Status::Finished)?;
+        backend.set_status(&job_id, Status::Running)?;
+        backend.run(&job_id).await?;
+        backend.set_status(&job_id, Status::Finished)?;
 
         Ok(())
     }

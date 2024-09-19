@@ -56,7 +56,7 @@ mod tests {
         reset_flag();
 
         // Create and start the job queue
-        let mut jq = JobQueue::<Routines>::new(1, 8).unwrap();
+        let mut jq = JobQueue::<Routines>::new(1, 1).unwrap();
 
         jq.start().unwrap();
         assert_eq!(jq.state(), State::Running);
@@ -71,13 +71,53 @@ mod tests {
 
         // Verify that job has been processed
         check_flag();
-        let result = jq.job_result(job_id).await.unwrap();
+        let result = jq.job_result(&job_id).await.unwrap();
+        let status = jq.job_status(&job_id).await.unwrap();
         assert_eq!(result["result"], "SET_FLAG_OK");
-        // TODO: fetch result and check
+        assert_eq!(status, Status::Finished);
 
         // Stop the job queue
         jq.stop().await.unwrap();
         jq.join().await.unwrap();
         assert_eq!(jq.state(), State::Stopped);
+    }
+
+    mod errors {
+        use super::*;
+
+        #[tokio::test]
+        async fn not_startable() {
+            let mut jq = JobQueue::<Routines>::new(1, 1).unwrap();
+            jq.start().unwrap();
+            assert!(jq.start().is_err());
+        }
+
+        #[tokio::test]
+        async fn not_joinable() {
+            let mut jq = JobQueue::<Routines>::new(1, 1).unwrap();
+            assert!(jq.join().await.is_err());
+
+            jq.start().unwrap();
+            assert!(jq.join().await.is_err());
+        }
+
+        #[tokio::test]
+        async fn not_stoppable() {
+            let mut jq = JobQueue::<Routines>::new(1, 1).unwrap();
+            assert!(jq.stop().await.is_err());
+
+            jq.start().unwrap();
+            jq.stop().await.unwrap();
+            assert!(jq.stop().await.is_err());
+        }
+
+        #[tokio::test]
+        async fn not_enqueuable() {
+            let jq = JobQueue::<Routines>::new(1, 1).unwrap();
+            let routine = Routines::SetFlag(SetFlagArgs { value: true });
+            let job = Job::new(routine).unwrap();
+
+            assert!(jq.enqueue(job).await.is_err());
+        }
     }
 }
