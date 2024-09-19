@@ -1,6 +1,5 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::time::SystemTime;
 
 use crate::prelude::*;
@@ -29,7 +28,7 @@ pub struct Payload {
     pub timestamps: Timestamps,
 
     /// Result of the job.
-    pub result: Value,
+    pub result: Vec<u8>,
 }
 
 /// Timestamps of every steps of the lifecycle of a job.
@@ -48,7 +47,7 @@ pub struct Timestamps {
 /// Trait that must be derived for the list of possible routines handled by the jobs.
 #[async_trait]
 pub trait Routine: for<'a> Deserialize<'a> + Serialize + Send {
-    async fn call(&self) -> Result<Value, Error>;
+    async fn call(&self) -> Result<Vec<u8>, Error>;
 }
 
 /// Description of a job.
@@ -89,7 +88,7 @@ impl Job {
                     started: SystemTime::UNIX_EPOCH,
                     finished: SystemTime::UNIX_EPOCH,
                 },
-                result: Value::default(),
+                result: vec![],
             },
         })
     }
@@ -157,7 +156,7 @@ impl Job {
     ///
     /// # Returns
     /// The result of the job.
-    pub fn result(&self) -> &Value {
+    pub fn result(&self) -> &[u8] {
         &self.payload.result
     }
 
@@ -168,11 +167,8 @@ impl Job {
     ///
     /// # Errors
     /// One of `Error` enum.
-    pub fn set_result<T>(&mut self, value: T) -> Result<(), Error>
-    where
-        T: Serialize,
-    {
-        self.payload.result = serde_json::to_value(value)?;
+    pub fn set_result(&mut self, value: Vec<u8>) -> Result<(), Error> {
+        self.payload.result = value;
 
         Ok(())
     }

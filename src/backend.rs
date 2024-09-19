@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -18,7 +17,7 @@ pub trait Backend<Routine>: Send {
     // TODO: document
     fn set_status(&mut self, id: &Uuid, status: Status) -> Result<(), Error>;
     // TODO: document
-    fn result(&self, id: &Uuid) -> Result<&Value, Error>;
+    fn result(&self, id: &Uuid) -> Result<&[u8], Error>;
 }
 
 /// Type used to share the backend instance across threads.

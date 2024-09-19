@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use serde_json::Value;
 use std::collections::BTreeMap;
 
 use crate::prelude::*;
@@ -50,7 +49,7 @@ where
         }
     }
 
-    fn result(&self, id: &Uuid) -> Result<&Value, Error> {
+    fn result(&self, id: &Uuid) -> Result<&[u8], Error> {
         Ok(self
             .jobs
             .get(id)

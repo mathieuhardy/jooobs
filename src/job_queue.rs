@@ -1,4 +1,3 @@
-use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::mpsc::{self, Sender};
 use tokio::sync::Mutex;
@@ -211,15 +210,15 @@ where
     /// * `id` - ID of the job to be inspected.
     ///
     /// # Returns
-    /// The result of the job as `serde_json::Value`.
+    /// The result of the job as vector of bytes.
     ///
     /// # Errors
     /// One of `Error` enum.
-    pub async fn job_result(&self, id: &Uuid) -> Result<Value, Error> {
+    pub async fn job_result(&self, id: &Uuid) -> Result<Vec<u8>, Error> {
         let backend = self.backend.lock().await;
 
         let value = backend.result(id)?;
-        Ok(value.clone())
+        Ok(value.to_vec())
     }
 
     /// Checks if the current state allows to start the queue.

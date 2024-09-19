@@ -39,13 +39,18 @@ mod tests {
 
     #[async_trait]
     impl Routine for Routines {
-        async fn call(&self) -> Result<Value, Error> {
+        async fn call(&self) -> Result<Vec<u8>, Error> {
             match self {
                 Self::SetFlag(args) => {
                     set_flag(args.clone());
-                    Ok(serde_json::json!({
+
+                    let json = serde_json::json!({
                         "result": "SET_FLAG_OK",
-                    }))
+                    });
+
+                    let bytes = json.to_string().into_bytes();
+
+                    Ok(bytes)
                 }
             }
         }
@@ -71,7 +76,8 @@ mod tests {
 
         // Verify that job has been processed
         check_flag();
-        let result = jq.job_result(&job_id).await.unwrap();
+        let bytes = jq.job_result(&job_id).await.unwrap();
+        let result: Value = serde_json::from_slice(&bytes).unwrap();
         let status = jq.job_status(&job_id).await.unwrap();
         assert_eq!(result["result"], "SET_FLAG_OK");
         assert_eq!(status, Status::Finished);
