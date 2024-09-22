@@ -10,10 +10,18 @@ mod tests {
     use async_trait::async_trait;
     use serde_json::Value;
     use std::sync::Mutex;
+    use tokio::runtime::Runtime;
 
     use crate::prelude::*;
 
     static FLAG: Mutex<bool> = Mutex::new(false);
+
+    fn error_handler<T>(err: T)
+    where
+        T: std::fmt::Display,
+    {
+        println!("ERR: {err}");
+    }
 
     fn reset_flag() {
         set_flag(SetFlagArgs { value: false });
@@ -56,74 +64,79 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn nominal() {
+    #[test]
+    fn nominal() {
+        let mut jq = JobQueue::<Routines>::new(1, error_handler).unwrap();
+
         reset_flag();
 
-        // Create and start the job queue
-        let mut jq = JobQueue::<Routines>::new(1, 1).unwrap();
-
+        // Start queue
         jq.start().unwrap();
         assert_eq!(jq.state(), State::Running);
 
-        // Create the job and push it
-        let routine = Routines::SetFlag(SetFlagArgs { value: true });
-        let job = Job::new(routine).unwrap();
-        let job_id = job.id();
+        Runtime::new().unwrap().block_on(async {
+            // Create the job and push it
+            let routine = Routines::SetFlag(SetFlagArgs { value: true });
+            let job = Job::new(routine).unwrap();
+            let job_id = job.id();
 
-        jq.enqueue(job).await.unwrap();
-        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+            jq.enqueue(job).unwrap();
 
-        // Verify that job has been processed
-        check_flag();
-        let bytes = jq.job_result(&job_id).await.unwrap();
-        let result: Value = serde_json::from_slice(&bytes).unwrap();
-        let status = jq.job_status(&job_id).await.unwrap();
-        assert_eq!(result["result"], "SET_FLAG_OK");
-        assert_eq!(status, Status::Finished);
+            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
-        // Stop the job queue
-        jq.stop().await.unwrap();
-        jq.join().await.unwrap();
-        assert_eq!(jq.state(), State::Stopped);
+            // Verify that job has been processed
+            check_flag();
+            let bytes = jq.job_result(&job_id).await.unwrap();
+            let result: Value = serde_json::from_slice(&bytes).unwrap();
+            let status = jq.job_status(&job_id).await.unwrap();
+            assert_eq!(result["result"], "SET_FLAG_OK");
+            assert_eq!(status, Status::Finished);
+
+            // Stop the job queue
+            jq.stop().unwrap();
+        });
+
+        jq.join().unwrap();
     }
 
     mod errors {
         use super::*;
 
-        #[tokio::test]
-        async fn not_startable() {
-            let mut jq = JobQueue::<Routines>::new(1, 1).unwrap();
-            jq.start().unwrap();
-            assert!(jq.start().is_err());
+        #[test]
+        fn not_startable() {
+            let mut jq = JobQueue::<Routines>::new(1, error_handler).unwrap();
+
+            Runtime::new().unwrap().block_on(async {
+                jq.start().unwrap();
+                assert!(jq.start().is_err());
+            });
         }
 
-        #[tokio::test]
-        async fn not_joinable() {
-            let mut jq = JobQueue::<Routines>::new(1, 1).unwrap();
-            assert!(jq.join().await.is_err());
+        #[test]
+        fn not_joinable() {
+            let jq = JobQueue::<Routines>::new(1, error_handler).unwrap();
+            assert!(jq.join().is_err());
 
-            jq.start().unwrap();
-            assert!(jq.join().await.is_err());
+            let mut jq = JobQueue::<Routines>::new(1, error_handler).unwrap();
+
+            Runtime::new().unwrap().block_on(async {
+                jq.start().unwrap();
+            });
+
+            assert!(jq.join().is_err());
         }
 
-        #[tokio::test]
-        async fn not_stoppable() {
-            let mut jq = JobQueue::<Routines>::new(1, 1).unwrap();
-            assert!(jq.stop().await.is_err());
+        #[test]
+        fn not_stoppable() {
+            let mut jq = JobQueue::<Routines>::new(1, error_handler).unwrap();
 
-            jq.start().unwrap();
-            jq.stop().await.unwrap();
-            assert!(jq.stop().await.is_err());
-        }
+            Runtime::new().unwrap().block_on(async {
+                assert!(jq.stop().is_err());
 
-        #[tokio::test]
-        async fn not_enqueuable() {
-            let jq = JobQueue::<Routines>::new(1, 1).unwrap();
-            let routine = Routines::SetFlag(SetFlagArgs { value: true });
-            let job = Job::new(routine).unwrap();
-
-            assert!(jq.enqueue(job).await.is_err());
+                jq.start().unwrap();
+                jq.stop().unwrap();
+                assert!(jq.stop().is_err());
+            });
         }
     }
 }

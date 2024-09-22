@@ -8,15 +8,40 @@ use crate::prelude::*;
 /// and their results.
 #[async_trait]
 pub trait Backend<Routine>: Send {
-    // TODO: document
+    /// Schedule a job to be processed.
+    ///
+    /// # Arguments:
+    /// * `job` - Job structure to be processed.
     fn schedule(&mut self, job: Job) -> Result<(), Error>;
-    // TODO: document
+
+    /// Run a job.
+    ///
+    /// # Arguments:
+    /// * `id` - Job identifier to be run.
     async fn run(&mut self, id: &Uuid) -> Result<(), Error>;
-    // TODO: document
+
+    /// Get the status of a job.
+    ///
+    /// # Arguments:
+    /// * `id` - Job identifier to be fetched.
+    ///
+    /// # Returns
+    /// The status of the job.
     fn status(&self, id: &Uuid) -> Result<Status, Error>;
-    // TODO: document
+
+    /// Set the status of a job.
+    ///
+    /// # Arguments:
+    /// * `id` - Job identifier to be modified.
     fn set_status(&mut self, id: &Uuid, status: Status) -> Result<(), Error>;
-    // TODO: document
+
+    /// Get the result of a job.
+    ///
+    /// # Arguments:
+    /// * `id` - Job identifier to be fetched.
+    ///
+    /// # Returns
+    /// The result of the job as list of bytes.
     fn result(&self, id: &Uuid) -> Result<&[u8], Error>;
 }
 

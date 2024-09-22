@@ -7,18 +7,24 @@ use crate::job_queue::Message;
 pub enum Error {
     #[error("Queue is already running")]
     AlreadyRunning,
-    #[error("Cannot access backend ({0})")]
-    CannotAccessBackend(String),
+    #[error("Cannot access error handler ({0})")]
+    CannotAccessErrorHandler(String),
+    #[error("Cannot access receiver ({0})")]
+    CannotAccessReceiver(String),
+    #[error("Cannot access runtime ({0})")]
+    CannotAccessRuntime(String),
+    #[error("Cannot join the queue thread")]
+    CannotJoinThread,
     #[error("{0}")]
     Custom(String),
     #[error(transparent)]
     GenericError(#[from] Box<dyn std::error::Error>),
     #[error("Invalid job status transition: {0:?}")]
     InvalidJobStatusTransition((Status, Status)),
-    #[error("Invalid message queue size")]
-    InvalidMessageQueueSize,
     #[error("Invalid thread pool size")]
     InvalidThreadPoolSize,
+    #[error(transparent)]
+    IO(#[from] std::io::Error),
     #[error("Job with id {0} is not found")]
     JobNotFound(Uuid),
     #[error(transparent)]
@@ -26,7 +32,7 @@ pub enum Error {
     #[error(transparent)]
     JsonSerialization(#[from] serde_json::Error),
     #[error(transparent)]
-    MessageSend(#[from] tokio::sync::mpsc::error::SendError<Message>),
+    MessageSend(#[from] std::sync::mpsc::SendError<Message>),
     #[error("Missing channel for communicating with thread")]
     MissingChannel,
     #[error("Missing thread's join handle")]

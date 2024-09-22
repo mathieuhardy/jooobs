@@ -1,11 +1,15 @@
+use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Arc;
-use tokio::sync::mpsc::{self, Sender};
-use tokio::sync::Mutex;
+use std::sync::Mutex;
+use std::thread::JoinHandle;
+use tokio::runtime::{Builder, Runtime};
+use tokio::sync::Mutex as AsyncMutex;
 
 use crate::memory_backend::*;
 use crate::prelude::*;
 
 /// Type of messages that can be sent to the job queue.
+#[derive(PartialEq)]
 pub enum Message {
     /// Command message that change the state of the queue.
     Command(Cmd),
@@ -15,6 +19,7 @@ pub enum Message {
 }
 
 /// Commands handled by the thread of the job queue.
+#[derive(PartialEq)]
 pub enum Cmd {
     /// Stop the job queue.
     Stop,
@@ -32,29 +37,35 @@ pub enum State {
 
     /// Going to stop.
     Stopping,
-
-    /// Stopped indefinitely.
-    Stopped,
 }
 
+/// Type used to share the runtime instance across threads.
+pub type SharedRuntime = Arc<Mutex<Runtime>>;
+
+/// Type used to share the error handler across threads.
+pub type SharedErrorHandler = Arc<dyn Fn(Error) + Send + Sync>;
+
 pub struct JobQueue<RoutineType> {
-    /// Maximum number of messages that can be in the queue at the same time.
-    message_queue_size: usize,
-
-    /// Number of threads to spawn in the pool.
-    _thread_pool_size: usize,
-
     /// State of the job queue.
     state: State,
 
     /// Channel used to send messages to the thread of the job queue.
-    tx: Option<Sender<Message>>,
+    tx: Sender<Message>,
+
+    /// Channel used to receive messages from the thread of the job queue.
+    rx: Arc<Mutex<Receiver<Message>>>,
 
     /// Join handle used to wait the thread of the job queue.
-    join_handle: Option<tokio::task::JoinHandle<()>>,
+    join_handle: Option<JoinHandle<()>>,
 
     /// Backend used to store the list of jobs with their results.
     backend: SharedBackend<RoutineType>,
+
+    /// Tokio runtime instance with dedicated thread pool.
+    runtime: SharedRuntime,
+
+    /// Error handler function
+    error_handler: SharedErrorHandler,
 }
 
 impl<RoutineType> JobQueue<RoutineType>
@@ -64,27 +75,33 @@ where
     /// Creates a new job queue.
     ///
     /// # Arguments
-    /// * `message_queue_size` - Length of the internal message queue.
     /// * `thread_pool_size` - Number of thread to allocate in the internal thread pool.
+    /// * `error_handler` - User handler used to display some error messages.
     ///
     /// # Returns
     /// An instance of `JobQueue`.
-    pub fn new(message_queue_size: usize, _thread_pool_size: usize) -> Result<Self, Error> {
-        if message_queue_size == 0 {
-            return Err(Error::InvalidMessageQueueSize);
-        }
-
-        if _thread_pool_size == 0 {
+    pub fn new(
+        thread_pool_size: usize,
+        error_handler: impl Fn(Error) + Send + Sync + 'static,
+    ) -> Result<Self, Error> {
+        if thread_pool_size == 0 {
             return Err(Error::InvalidThreadPoolSize);
         }
 
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        let runtime = Builder::new_multi_thread()
+            .worker_threads(thread_pool_size)
+            .build()?;
+
         Ok(Self {
-            message_queue_size,
-            _thread_pool_size,
             state: State::default(),
-            tx: None,
+            tx,
+            rx: Arc::new(Mutex::new(rx)),
             join_handle: None,
-            backend: Arc::new(Mutex::new(Box::new(MemoryBackend::new()))),
+            backend: Arc::new(AsyncMutex::new(Box::new(MemoryBackend::new()))),
+            runtime: Arc::new(Mutex::new(runtime)),
+            error_handler: Arc::new(error_handler),
         })
     }
 
@@ -101,7 +118,7 @@ where
     /// # Arguments:
     /// * `backend` - Backend instance that will replace the current one.
     pub fn set_backend(&mut self, backend: impl Backend<RoutineType> + 'static) {
-        self.backend = Arc::new(Mutex::new(Box::new(backend)));
+        self.backend = Arc::new(AsyncMutex::new(Box::new(backend)));
     }
 
     /// Starts the job queue with async support.
@@ -111,16 +128,31 @@ where
     pub fn start(&mut self) -> Result<(), Error> {
         self.try_starting()?;
 
-        let (tx, mut rx) = mpsc::channel(self.message_queue_size);
-        self.tx = Some(tx);
-
         let backend = self.backend.clone();
+        let runtime = self.runtime.clone();
+        let rx = self.rx.clone();
+        let error_handler = self.error_handler.clone();
 
-        let handle = tokio::spawn(async move {
-            while let Some(msg) = rx.recv().await {
-                if JobQueue::process_message(backend.clone(), msg).await {
+        let handle = std::thread::spawn(move || {
+            let rx = match rx.lock() {
+                Ok(rx) => rx,
+                Err(e) => {
+                    error_handler(Error::CannotAccessReceiver(e.to_string()));
+                    return;
+                }
+            };
+
+            while let Ok(msg) = rx.recv() {
+                if msg == Message::Command(Cmd::Stop) {
                     break;
                 }
+
+                JobQueue::process_message(
+                    backend.clone(),
+                    runtime.clone(),
+                    error_handler.clone(),
+                    msg,
+                );
             }
         });
 
@@ -134,13 +166,19 @@ where
     ///
     /// # Errors
     /// One of `Error` enum.
-    pub async fn join(&mut self) -> Result<(), Error> {
+    pub fn join(self) -> Result<(), Error> {
         self.try_joining()?;
 
-        if let Some(handle) = &mut self.join_handle {
-            handle.await?;
-            self.join_handle = None;
-            self.state = State::Stopped;
+        if let Some(handle) = self.join_handle {
+            if handle.join().is_err() {
+                return Err(Error::CannotJoinThread);
+            }
+
+            // TODO
+            //self.runtime
+            //.lock()
+            //.unwrap()
+            //.shutdown_timeout(std::time::Duration::from_millis(100));
         } else {
             return Err(Error::MissingJoinHandle);
         }
@@ -148,23 +186,19 @@ where
         Ok(())
     }
 
-    /// Send aa stop command to the queue.
+    /// Send a stop command to the queue.
     /// There's no garantee that it will be processed but we'll do our best.
     ///
     /// # Errors
     /// One of `Error` enum.
-    pub async fn stop(&mut self) -> Result<(), Error> {
+    pub fn stop(&mut self) -> Result<(), Error> {
         self.try_stopping()?;
 
-        if let Some(tx) = &self.tx {
-            self.state = State::Stopping;
+        self.state = State::Stopping;
 
-            tx.send(Message::Command(Cmd::Stop))
-                .await
-                .map_err(Into::into)
-        } else {
-            Err(Error::MissingChannel)
-        }
+        self.tx
+            .send(Message::Command(Cmd::Stop))
+            .map_err(Into::<Error>::into)
     }
 
     /// Push a new job to be processed in the queue.
@@ -174,18 +208,14 @@ where
     ///
     /// # Errors
     /// One of `Error` enum.
-    pub async fn enqueue(&self, job: Job) -> Result<Uuid, Error> {
-        if let Some(tx) = &self.tx {
-            let job_id = job.id();
+    pub fn enqueue(&self, job: Job) -> Result<Uuid, Error> {
+        let job_id = job.id();
 
-            tx.send(Message::Job(job))
-                .await
-                .map_err(Into::<Error>::into)?;
+        self.tx
+            .send(Message::Job(job))
+            .map_err(Into::<Error>::into)?;
 
-            Ok(job_id)
-        } else {
-            Err(Error::MissingChannel)
-        }
+        Ok(job_id)
     }
 
     /// Get the status of a job.
@@ -228,7 +258,7 @@ where
     fn try_starting(&self) -> Result<(), Error> {
         match self.state {
             State::Running => Err(Error::AlreadyRunning),
-            State::Stopped | State::Stopping => Err(Error::Stopped),
+            State::Stopping => Err(Error::Stopped),
             _ => Ok(()),
         }
     }
@@ -252,7 +282,7 @@ where
     fn try_stopping(&self) -> Result<(), Error> {
         match self.state {
             State::Idle => Err(Error::NotStarted),
-            State::Stopped | State::Stopping => Err(Error::Stopped),
+            State::Stopping => Err(Error::Stopped),
             _ => Ok(()),
         }
     }
@@ -261,16 +291,15 @@ where
     ///
     /// # Arguments
     /// * `msg` - Message to be processed.
-    ///
-    /// # Returns
-    /// `True` if the queue must be stopped, `False` otherwise.
-    async fn process_message(backend: SharedBackend<RoutineType>, msg: Message) -> bool {
-        match msg {
-            Message::Command(Cmd::Stop) => true,
-            Message::Job(job) => {
-                let _ = JobQueue::process_job(backend, job).await;
-                false
-            }
+    fn process_message(
+        backend: SharedBackend<RoutineType>,
+        runtime: SharedRuntime,
+        error_handler: SharedErrorHandler,
+        msg: Message,
+    ) {
+        if let Message::Job(job) = msg {
+            let _ = JobQueue::process_job(backend, runtime, error_handler.clone(), job)
+                .map_err(|e| error_handler(e));
         }
     }
 
@@ -278,17 +307,44 @@ where
     ///
     /// # Arguments
     /// * `backend` - Backend instance used to process the jobs.
+    /// * `runtime` - Runtime instance used to process the jobs.
+    /// * `error_handler` - Handler for logging errors.
     /// * `job` - Job to be processed.
-    async fn process_job(backend: SharedBackend<RoutineType>, job: Job) -> Result<(), Error> {
-        let mut backend = backend.lock().await;
-
+    fn process_job(
+        backend: SharedBackend<RoutineType>,
+        runtime: SharedRuntime,
+        error_handler: SharedErrorHandler,
+        job: Job,
+    ) -> Result<(), Error> {
         let job_id = job.id();
-        backend.schedule(job)?;
-        backend.set_status(&job_id, Status::Ready)?;
 
-        backend.set_status(&job_id, Status::Running)?;
-        backend.run(&job_id).await?;
-        backend.set_status(&job_id, Status::Finished)?;
+        let runtime = runtime
+            .lock()
+            .map_err(|e| Error::CannotAccessRuntime(e.to_string()))?;
+
+        runtime.block_on(async {
+            let mut backend = backend.lock().await;
+
+            let _ = backend.schedule(job).map_err(|e| error_handler(e));
+
+            let _ = backend
+                .set_status(&job_id, Status::Ready)
+                .map_err(|e| error_handler(e));
+        });
+
+        runtime.spawn(async move {
+            let mut backend = backend.lock().await;
+
+            let _ = backend
+                .set_status(&job_id, Status::Running)
+                .map_err(|e| error_handler(e));
+
+            let _ = backend.run(&job_id).await.map_err(|e| error_handler(e));
+
+            let _ = backend
+                .set_status(&job_id, Status::Finished)
+                .map_err(|e| error_handler(e));
+        });
 
         Ok(())
     }

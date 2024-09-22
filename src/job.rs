@@ -22,7 +22,7 @@ pub enum Status {
 }
 
 /// Structure used to store timestamps and result of the job.
-#[derive(Deserialize, Serialize)]
+#[derive(PartialEq, Deserialize, Serialize)]
 pub struct Payload {
     /// Timestamps for every step of the job.
     pub timestamps: Timestamps,
@@ -32,7 +32,7 @@ pub struct Payload {
 }
 
 /// Timestamps of every steps of the lifecycle of a job.
-#[derive(Deserialize, Serialize)]
+#[derive(PartialEq, Deserialize, Serialize)]
 pub struct Timestamps {
     /// Timestamp at which the job is enqueued.
     pub enqueued: SystemTime,
@@ -51,7 +51,7 @@ pub trait Routine: for<'a> Deserialize<'a> + Serialize + Send {
 }
 
 /// Description of a job.
-#[derive(Deserialize, Serialize)]
+#[derive(PartialEq, Deserialize, Serialize)]
 pub struct Job {
     /// Unique identifier of the job.
     id: Uuid,

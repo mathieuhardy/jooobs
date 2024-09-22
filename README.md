@@ -6,5 +6,4 @@
 - Progression
 - Uuid::now_v1 values
 - Retry/clean at startup
-- GZIP for storage of the result
 - CI: use cargo-nextest
