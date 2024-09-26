@@ -56,6 +56,14 @@ where
             .ok_or(Error::JobNotFound(id.to_owned()))?
             .result())
     }
+
+    fn progression(&self, id: &Uuid) -> Result<Progression, Error> {
+        Ok(self
+            .jobs
+            .get(id)
+            .ok_or(Error::JobNotFound(id.to_owned()))?
+            .progression())
+    }
 }
 
 impl MemoryBackend {

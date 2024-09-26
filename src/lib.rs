@@ -47,16 +47,19 @@ mod tests {
 
     #[async_trait]
     impl Routine for Routines {
-        async fn call(&self) -> Result<Vec<u8>, Error> {
+        async fn call(&self, job: &mut Job) -> Result<Vec<u8>, Error> {
             match self {
                 Self::SetFlag(args) => {
                     set_flag(args.clone());
+                    job.set_steps(2);
 
                     let json = serde_json::json!({
                         "result": "SET_FLAG_OK",
                     });
+                    job.set_step(1).unwrap();
 
                     let bytes = json.to_string().into_bytes();
+                    job.set_step(2).unwrap();
 
                     Ok(bytes)
                 }
@@ -89,8 +92,11 @@ mod tests {
             let bytes = jq.job_result(&job_id).await.unwrap();
             let result: Value = serde_json::from_slice(&bytes).unwrap();
             let status = jq.job_status(&job_id).await.unwrap();
+            let progression = jq.job_progression(&job_id).await.unwrap();
             assert_eq!(result["result"], "SET_FLAG_OK");
             assert_eq!(status, Status::Finished);
+            assert_eq!(progression.step, 2);
+            assert_eq!(progression.steps, 2);
 
             // Stop the job queue
             jq.stop().unwrap();

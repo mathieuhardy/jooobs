@@ -41,6 +41,8 @@ pub enum Error {
     NotStarted,
     #[error("Queue is not stopping")]
     NotStopping,
+    #[error("Progression overflow")]
+    ProgressionOverflow,
     #[error("Queue is stopped")]
     Stopped,
 }

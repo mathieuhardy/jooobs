@@ -21,6 +21,16 @@ pub enum Status {
     Finished,
 }
 
+/// Structure used to store the progression steps of the job.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Progression {
+    /// Current step.
+    pub step: u64,
+
+    /// Number of steps.
+    pub steps: u64,
+}
+
 /// Structure used to store timestamps and result of the job.
 #[derive(PartialEq, Deserialize, Serialize)]
 pub struct Payload {
@@ -47,7 +57,7 @@ pub struct Timestamps {
 /// Trait that must be derived for the list of possible routines handled by the jobs.
 #[async_trait]
 pub trait Routine: for<'a> Deserialize<'a> + Serialize + Send {
-    async fn call(&self) -> Result<Vec<u8>, Error>;
+    async fn call(&self, job: &mut Job) -> Result<Vec<u8>, Error>;
 }
 
 /// Description of a job.
@@ -64,6 +74,12 @@ pub struct Job {
 
     /// Payload of the job where the result will be stored.
     payload: Payload,
+
+    /// Number of steps of the job.
+    steps: u64,
+
+    /// Current step (progression).
+    step: u64,
 }
 
 impl Job {
@@ -90,6 +106,8 @@ impl Job {
                 },
                 result: vec![],
             },
+            steps: 0,
+            step: 0,
         })
     }
 
@@ -173,11 +191,44 @@ impl Job {
         Ok(())
     }
 
+    /// Set the total steps of the job.
+    ///
+    /// # Arguments
+    /// * `steps` - Number of steps of the job.
+    pub fn set_steps(&mut self, steps: u64) {
+        self.steps = steps;
+    }
+
+    /// Set the current step of the job.
+    ///
+    /// # Arguments
+    /// * `step` - Current step of the job.
+    pub fn set_step(&mut self, step: u64) -> Result<(), Error> {
+        if step > self.steps {
+            return Err(Error::ProgressionOverflow);
+        }
+
+        self.step = step;
+
+        Ok(())
+    }
+
+    /// Get the progression of the job.
+    ///
+    /// # Returns
+    /// The progression of the job.
+    pub fn progression(&self) -> Progression {
+        Progression {
+            step: self.step,
+            steps: self.steps,
+        }
+    }
+
     /// Call the underlying routine of the job.
     pub async fn run<T: Routine>(&mut self) -> Result<(), Error> {
         let routine: T = serde_json::from_str(&self.routine)?;
 
-        let result = routine.call().await?;
+        let result = routine.call(self).await?;
 
         self.set_result(result)
     }

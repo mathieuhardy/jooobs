@@ -251,6 +251,22 @@ where
         Ok(value.to_vec())
     }
 
+    /// Get the progression of a job.
+    ///
+    /// # Arguments
+    /// * `id` - ID of the job to be inspected.
+    ///
+    /// # Returns
+    /// The progression of the job.
+    ///
+    /// # Errors
+    /// One of `Error` enum.
+    pub async fn job_progression(&self, id: &Uuid) -> Result<Progression, Error> {
+        let backend = self.backend.lock().await;
+
+        backend.progression(id)
+    }
+
     /// Checks if the current state allows to start the queue.
     ///
     /// # Errors

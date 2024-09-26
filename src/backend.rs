@@ -43,6 +43,15 @@ pub trait Backend<Routine>: Send {
     /// # Returns
     /// The result of the job as list of bytes.
     fn result(&self, id: &Uuid) -> Result<&[u8], Error>;
+
+    /// Get the progression of a job.
+    ///
+    /// # Arguments:
+    /// * `id` - Job identifier to be fetched.
+    ///
+    /// # Returns
+    /// The progression of the job as `Progression`.
+    fn progression(&self, id: &Uuid) -> Result<Progression, Error>;
 }
 
 /// Type used to share the backend instance across threads.
