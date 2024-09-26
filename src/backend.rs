@@ -18,7 +18,9 @@ pub trait Backend<Routine>: Send {
     ///
     /// # Arguments:
     /// * `id` - Job identifier to be run.
-    async fn run(&mut self, id: &Uuid, notifications: SharedMessageChannel) -> Result<(), Error>;
+    /// * `messages_channel` - Channel used to send messages to the queue.
+    async fn run(&mut self, id: &Uuid, messages_channel: SharedMessageChannel)
+        -> Result<(), Error>;
 
     /// Get the status of a job.
     ///

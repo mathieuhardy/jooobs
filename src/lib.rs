@@ -50,15 +50,15 @@ mod tests {
         async fn call(
             &self,
             job_id: Uuid,
-            notifications: SharedMessageChannel,
+            messages_channel: SharedMessageChannel,
         ) -> Result<Vec<u8>, Error> {
             match self {
                 Self::SetFlag(args) => {
-                    let notifications = notifications.lock().unwrap();
+                    let messages_channel = messages_channel.lock().unwrap();
 
                     set_flag(args.clone());
 
-                    notifications
+                    messages_channel
                         .send(Message::Command(Cmd::SetSteps(job_id, 2)))
                         .unwrap();
 
@@ -66,13 +66,13 @@ mod tests {
                         "result": "SET_FLAG_OK",
                     });
 
-                    notifications
+                    messages_channel
                         .send(Message::Command(Cmd::SetStep(job_id, 1)))
                         .unwrap();
 
                     let bytes = json.to_string().into_bytes();
 
-                    notifications
+                    messages_channel
                         .send(Message::Command(Cmd::SetStep(job_id, 2)))
                         .unwrap();
 

@@ -21,9 +21,13 @@ where
         Ok(())
     }
 
-    async fn run(&mut self, id: &Uuid, notifications: SharedMessageChannel) -> Result<(), Error> {
+    async fn run(
+        &mut self,
+        id: &Uuid,
+        messages_channel: SharedMessageChannel,
+    ) -> Result<(), Error> {
         if let Some(job) = self.jobs.get_mut(id) {
-            job.run::<RoutineType>(notifications).await?;
+            job.run::<RoutineType>(messages_channel).await?;
 
             Ok(())
         } else {

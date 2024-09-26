@@ -67,7 +67,7 @@ pub trait Routine: for<'a> Deserialize<'a> + Serialize + Send {
     async fn call(
         &self,
         job_id: Uuid,
-        notifications: SharedMessageChannel,
+        messages_channel: SharedMessageChannel,
     ) -> Result<Vec<u8>, Error>;
 }
 
@@ -244,14 +244,14 @@ impl Job {
     /// Call the underlying routine of the job.
     ///
     /// # Arguments
-    /// * `notifications` - Channel used to send message to the job queue (for notifications).
+    /// * `messages_channel` - Channel used to send message to the job queue.
     pub async fn run<T: Routine>(
         &mut self,
-        notifications: SharedMessageChannel,
+        messages_channel: SharedMessageChannel,
     ) -> Result<(), Error> {
         let routine: T = serde_json::from_str(&self.routine)?;
 
-        let result = routine.call(self.id(), notifications).await?;
+        let result = routine.call(self.id(), messages_channel).await?;
 
         self.set_result(result)
     }

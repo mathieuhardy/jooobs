@@ -141,7 +141,7 @@ where
         let runtime = self.runtime.clone();
         let rx = self.rx.clone();
         let error_handler = self.error_handler.clone();
-        let notifications = self.tx.clone();
+        let messages_channel = self.tx.clone();
 
         let handle = std::thread::spawn(move || {
             let rx = match rx.lock() {
@@ -161,7 +161,7 @@ where
                     backend.clone(),
                     runtime.clone(),
                     error_handler.clone(),
-                    notifications.clone(),
+                    messages_channel.clone(),
                     msg,
                 );
             }
@@ -326,7 +326,7 @@ where
         backend: SharedBackend<RoutineType>,
         runtime: SharedRuntime,
         error_handler: SharedErrorHandler,
-        notifications: SharedMessageChannel,
+        messages_channel: SharedMessageChannel,
         msg: Message,
     ) {
         match msg {
@@ -335,7 +335,7 @@ where
                     backend,
                     runtime,
                     error_handler.clone(),
-                    notifications.clone(),
+                    messages_channel.clone(),
                     job,
                 )
                 .map_err(|e| error_handler(e));
@@ -398,7 +398,7 @@ where
         backend: SharedBackend<RoutineType>,
         runtime: SharedRuntime,
         error_handler: SharedErrorHandler,
-        notifications: SharedMessageChannel,
+        messages_channel: SharedMessageChannel,
         job: Job,
     ) -> Result<(), Error> {
         let job_id = job.id();
@@ -425,7 +425,7 @@ where
                 .map_err(|e| error_handler(e));
 
             let _ = backend
-                .run(&job_id, notifications)
+                .run(&job_id, messages_channel)
                 .await
                 .map_err(|e| error_handler(e));
 
