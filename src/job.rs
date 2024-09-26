@@ -1,8 +1,15 @@
 use async_trait::async_trait;
+use lazy_static::lazy_static;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
 
 use crate::prelude::*;
+
+lazy_static! {
+    /// This is an example for using doc comment attributes
+    static ref GROUP_ID: [u8; 6] = rand::thread_rng().gen::<[u8; 6]>();
+}
 
 /// List of statuses of a job.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize, Serialize)]
@@ -95,7 +102,7 @@ impl Job {
     /// One of `Error` enum.
     pub fn new(routine: impl Routine) -> Result<Self, Error> {
         Ok(Self {
-            id: Uuid::now_v1(&[1, 2, 3, 4, 5, 6]),
+            id: Uuid::now_v1(&GROUP_ID),
             routine: serde_json::to_string(&routine)?,
             status: Status::NotReady,
             payload: Payload {
