@@ -54,14 +54,20 @@ pub trait Backend<Routine>: Send {
     /// # Arguments:
     /// * `id` - Job identifier to be modified.
     /// * `steps` - Number of steps to set.
-    fn set_steps(&mut self, id: &Uuid, steps: u64) -> Result<(), ApiError>;
+    ///
+    /// # Returns
+    /// Current progression.
+    fn set_steps(&mut self, id: &Uuid, steps: u64) -> Result<Progression, ApiError>;
 
     /// Set the current step for a job.
     ///
     /// # Arguments:
     /// * `id` - Job identifier to be modified.
     /// * `step` - Current step to set.
-    fn set_step(&mut self, id: &Uuid, step: u64) -> Result<(), ApiError>;
+    ///
+    /// # Returns
+    /// Current progression.
+    fn set_step(&mut self, id: &Uuid, step: u64) -> Result<Progression, ApiError>;
 
     /// Get the progression of a job.
     ///

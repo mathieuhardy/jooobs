@@ -219,16 +219,19 @@ impl Job {
     /// # Arguments
     /// * `steps` - Number of steps of the job.
     ///
+    /// # Returns
+    /// Current progression.
+    ///
     /// # Errors
     /// One of `ApiError` enum.
-    pub fn set_steps(&mut self, steps: u64) -> Result<(), ApiError> {
+    pub fn set_steps(&mut self, steps: u64) -> Result<Progression, ApiError> {
         if self.step > steps {
             return Err(api_err!(Error::ProgressionOverflow));
         }
 
         self.steps = steps;
 
-        Ok(())
+        Ok(self.progression())
     }
 
     /// Set the current step of the job.
@@ -236,16 +239,19 @@ impl Job {
     /// # Arguments
     /// * `step` - Current step of the job.
     ///
+    /// # Returns
+    /// Current progression.
+    ///
     /// # Errors
     /// One of `ApiError` enum.
-    pub fn set_step(&mut self, step: u64) -> Result<(), ApiError> {
+    pub fn set_step(&mut self, step: u64) -> Result<Progression, ApiError> {
         if step > self.steps {
             return Err(api_err!(Error::ProgressionOverflow));
         }
 
         self.step = step;
 
-        Ok(())
+        Ok(self.progression())
     }
 
     /// Get the progression of the job.

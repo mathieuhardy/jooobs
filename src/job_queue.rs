@@ -36,6 +36,12 @@ pub enum Cmd {
 pub enum Notification {
     /// Error notification.
     Error(Error),
+
+    /// Update of the progression of a job.
+    Progression(Uuid, Progression),
+
+    /// Update of the status of a job.
+    Status(Uuid, Status),
 }
 
 /// States of the tread running the job queue.
@@ -380,15 +386,21 @@ where
 
             match cmd {
                 Cmd::SetSteps(job_id, steps) => {
-                    let _ = backend
+                    if let Ok(p) = backend
                         .set_steps(&job_id, steps)
-                        .map_err(|e| notification_handler(Notification::Error(*e)));
+                        .map_err(|e| notification_handler(Notification::Error(*e)))
+                    {
+                        notification_handler(Notification::Progression(job_id, p));
+                    }
                 }
 
                 Cmd::SetStep(job_id, step) => {
-                    let _ = backend
+                    if let Ok(p) = backend
                         .set_step(&job_id, step)
-                        .map_err(|e| notification_handler(Notification::Error(*e)));
+                        .map_err(|e| notification_handler(Notification::Error(*e)))
+                    {
+                        notification_handler(Notification::Progression(job_id, p));
+                    }
                 }
 
                 _ => (),
@@ -421,9 +433,13 @@ where
         runtime.block_on(async {
             let mut backend = backend.lock().await;
 
-            let _ = backend
+            if backend
                 .schedule(job)
-                .map_err(|e| notification_handler(Notification::Error(*e)));
+                .map_err(|e| notification_handler(Notification::Error(*e)))
+                .is_err()
+            {
+                return;
+            }
 
             let _ = backend
                 .set_status(&job_id, Status::Ready)
@@ -433,18 +449,34 @@ where
         runtime.spawn(async move {
             let mut backend = backend.lock().await;
 
-            let _ = backend
+            if backend
                 .set_status(&job_id, Status::Running)
-                .map_err(|e| notification_handler(Notification::Error(*e)));
+                .map_err(|e| notification_handler(Notification::Error(*e)))
+                .is_err()
+            {
+                return;
+            }
 
-            let _ = backend
+            notification_handler(Notification::Status(job_id, Status::Running));
+
+            if backend
                 .run(&job_id, messages_channel)
                 .await
-                .map_err(|e| notification_handler(Notification::Error(*e)));
+                .map_err(|e| notification_handler(Notification::Error(*e)))
+                .is_err()
+            {
+                return;
+            }
 
-            let _ = backend
+            if backend
                 .set_status(&job_id, Status::Finished)
-                .map_err(|e| notification_handler(Notification::Error(*e)));
+                .map_err(|e| notification_handler(Notification::Error(*e)))
+                .is_err()
+            {
+                return;
+            }
+
+            notification_handler(Notification::Status(job_id, Status::Finished));
         });
 
         Ok(())

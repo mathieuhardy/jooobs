@@ -19,6 +19,14 @@ mod tests {
     fn notification_handler(notification: Notification) {
         match notification {
             Notification::Error(e) => println!("ERR: {e}"),
+
+            Notification::Progression(id, progression) => {
+                println!("PROGRESSION({id}): {progression:#?}")
+            }
+
+            Notification::Status(id, status) => {
+                println!("STATUS({id}): {status:#?}")
+            }
         }
     }
 

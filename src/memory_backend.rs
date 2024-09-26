@@ -61,21 +61,17 @@ where
             .result())
     }
 
-    fn set_steps(&mut self, id: &Uuid, steps: u64) -> Result<(), ApiError> {
+    fn set_steps(&mut self, id: &Uuid, steps: u64) -> Result<Progression, ApiError> {
         if let Some(job) = self.jobs.get_mut(id) {
-            job.set_steps(steps)?;
-
-            Ok(())
+            job.set_steps(steps)
         } else {
             Err(api_err!(Error::JobNotFound(id.to_owned())))
         }
     }
 
-    fn set_step(&mut self, id: &Uuid, step: u64) -> Result<(), ApiError> {
+    fn set_step(&mut self, id: &Uuid, step: u64) -> Result<Progression, ApiError> {
         if let Some(job) = self.jobs.get_mut(id) {
-            job.set_step(step)?;
-
-            Ok(())
+            job.set_step(step)
         } else {
             Err(api_err!(Error::JobNotFound(id.to_owned())))
         }
