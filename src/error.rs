@@ -3,6 +3,15 @@ use uuid::Uuid;
 use crate::job::Status;
 use crate::job_queue::Message;
 
+#[macro_export]
+macro_rules! api_err {
+    ($e: expr) => {
+        Box::new($e)
+    };
+}
+
+pub type ApiError = Box<Error>;
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Queue is already running")]
@@ -48,5 +57,3 @@ pub enum Error {
     #[error("Queue is stopped")]
     Stopped,
 }
-
-pub type JobError = Box<dyn std::error::Error>;

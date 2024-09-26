@@ -92,16 +92,17 @@ where
     pub fn new(
         thread_pool_size: usize,
         error_handler: impl Fn(Error) + Send + Sync + 'static,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, ApiError> {
         if thread_pool_size == 0 {
-            return Err(Error::InvalidThreadPoolSize);
+            return Err(api_err!(Error::InvalidThreadPoolSize));
         }
 
         let (tx, rx) = std::sync::mpsc::channel();
 
         let runtime = Builder::new_multi_thread()
             .worker_threads(thread_pool_size)
-            .build()?;
+            .build()
+            .map_err(|e| api_err!(e.into()))?;
 
         Ok(Self {
             state: State::default(),
@@ -134,7 +135,7 @@ where
     ///
     /// # Errors
     /// One of `Error` enum.
-    pub fn start(&mut self) -> Result<(), Error> {
+    pub fn start(&mut self) -> Result<(), ApiError> {
         self.try_starting()?;
 
         let backend = self.backend.clone();
@@ -177,12 +178,12 @@ where
     ///
     /// # Errors
     /// One of `Error` enum.
-    pub fn join(self) -> Result<(), Error> {
+    pub fn join(self) -> Result<(), ApiError> {
         self.try_joining()?;
 
         if let Some(handle) = self.join_handle {
             if handle.join().is_err() {
-                return Err(Error::CannotJoinThread);
+                return Err(api_err!(Error::CannotJoinThread));
             }
 
             // TODO
@@ -191,7 +192,7 @@ where
             //.unwrap()
             //.shutdown_timeout(std::time::Duration::from_millis(100));
         } else {
-            return Err(Error::MissingJoinHandle);
+            return Err(api_err!(Error::MissingJoinHandle));
         }
 
         Ok(())
@@ -202,16 +203,16 @@ where
     ///
     /// # Errors
     /// One of `Error` enum.
-    pub fn stop(&mut self) -> Result<(), Error> {
+    pub fn stop(&mut self) -> Result<(), ApiError> {
         self.try_stopping()?;
 
         self.state = State::Stopping;
 
         self.tx
             .lock()
-            .unwrap() // TODO
+            .map_err(|e| api_err!(Error::CannotAccessSender(e.to_string())))?
             .send(Message::Command(Cmd::Stop))
-            .map_err(Into::<Error>::into)
+            .map_err(|e| api_err!(e.into()))
     }
 
     /// Push a new job to be processed in the queue.
@@ -221,12 +222,12 @@ where
     ///
     /// # Errors
     /// One of `Error` enum.
-    pub fn enqueue(&self, job: Job) -> Result<Uuid, Error> {
+    pub fn enqueue(&self, job: Job) -> Result<Uuid, ApiError> {
         let job_id = job.id();
 
         self.tx
             .lock()
-            .unwrap() // TODO
+            .map_err(|e| api_err!(Error::CannotAccessSender(e.to_string())))?
             .send(Message::Job(job))
             .map_err(Into::<Error>::into)?;
 
@@ -243,7 +244,7 @@ where
     ///
     /// # Errors
     /// One of `Error` enum.
-    pub async fn job_status(&self, id: &Uuid) -> Result<Status, Error> {
+    pub async fn job_status(&self, id: &Uuid) -> Result<Status, ApiError> {
         let backend = self.backend.lock().await;
 
         backend.status(id)
@@ -259,7 +260,7 @@ where
     ///
     /// # Errors
     /// One of `Error` enum.
-    pub async fn job_result(&self, id: &Uuid) -> Result<Vec<u8>, Error> {
+    pub async fn job_result(&self, id: &Uuid) -> Result<Vec<u8>, ApiError> {
         let backend = self.backend.lock().await;
 
         let value = backend.result(id)?;
@@ -276,7 +277,7 @@ where
     ///
     /// # Errors
     /// One of `Error` enum.
-    pub async fn job_progression(&self, id: &Uuid) -> Result<Progression, Error> {
+    pub async fn job_progression(&self, id: &Uuid) -> Result<Progression, ApiError> {
         let backend = self.backend.lock().await;
 
         backend.progression(id)
@@ -286,10 +287,10 @@ where
     ///
     /// # Errors
     /// One of `Error` enum.
-    fn try_starting(&self) -> Result<(), Error> {
+    fn try_starting(&self) -> Result<(), ApiError> {
         match self.state {
-            State::Running => Err(Error::AlreadyRunning),
-            State::Stopping => Err(Error::Stopped),
+            State::Running => Err(api_err!(Error::AlreadyRunning)),
+            State::Stopping => Err(api_err!(Error::Stopped)),
             _ => Ok(()),
         }
     }
@@ -298,10 +299,10 @@ where
     ///
     /// # Errors
     /// One of `Error` enum.
-    fn try_joining(&self) -> Result<(), Error> {
+    fn try_joining(&self) -> Result<(), ApiError> {
         match self.state {
-            State::Idle => Err(Error::NotStarted),
-            State::Running => Err(Error::NotStopping),
+            State::Idle => Err(api_err!(Error::NotStarted)),
+            State::Running => Err(api_err!(Error::NotStopping)),
             _ => Ok(()),
         }
     }
@@ -310,10 +311,10 @@ where
     ///
     /// # Errors
     /// One of `Error` enum.
-    fn try_stopping(&self) -> Result<(), Error> {
+    fn try_stopping(&self) -> Result<(), ApiError> {
         match self.state {
-            State::Idle => Err(Error::NotStarted),
-            State::Stopping => Err(Error::Stopped),
+            State::Idle => Err(api_err!(Error::NotStarted)),
+            State::Stopping => Err(api_err!(Error::Stopped)),
             _ => Ok(()),
         }
     }
@@ -338,12 +339,12 @@ where
                     messages_channel.clone(),
                     job,
                 )
-                .map_err(|e| error_handler(e));
+                .map_err(|e| error_handler(*e));
             }
 
             Message::Command(cmd) => {
                 let _ = JobQueue::process_command(backend, runtime, error_handler.clone(), cmd)
-                    .map_err(|e| error_handler(e));
+                    .map_err(|e| error_handler(*e));
             }
         }
     }
@@ -359,7 +360,7 @@ where
         runtime: SharedRuntime,
         error_handler: SharedErrorHandler,
         cmd: Cmd,
-    ) -> Result<(), Error> {
+    ) -> Result<(), ApiError> {
         let runtime = runtime
             .lock()
             .map_err(|e| Error::CannotAccessRuntime(e.to_string()))?;
@@ -371,13 +372,13 @@ where
                 Cmd::SetSteps(job_id, steps) => {
                     let _ = backend
                         .set_steps(&job_id, steps)
-                        .map_err(|e| error_handler(e));
+                        .map_err(|e| error_handler(*e));
                 }
 
                 Cmd::SetStep(job_id, step) => {
                     let _ = backend
                         .set_step(&job_id, step)
-                        .map_err(|e| error_handler(e));
+                        .map_err(|e| error_handler(*e));
                 }
 
                 _ => (),
@@ -400,7 +401,7 @@ where
         error_handler: SharedErrorHandler,
         messages_channel: SharedMessageChannel,
         job: Job,
-    ) -> Result<(), Error> {
+    ) -> Result<(), ApiError> {
         let job_id = job.id();
 
         let runtime = runtime
@@ -410,11 +411,11 @@ where
         runtime.block_on(async {
             let mut backend = backend.lock().await;
 
-            let _ = backend.schedule(job).map_err(|e| error_handler(e));
+            let _ = backend.schedule(job).map_err(|e| error_handler(*e));
 
             let _ = backend
                 .set_status(&job_id, Status::Ready)
-                .map_err(|e| error_handler(e));
+                .map_err(|e| error_handler(*e));
         });
 
         runtime.spawn(async move {
@@ -422,16 +423,16 @@ where
 
             let _ = backend
                 .set_status(&job_id, Status::Running)
-                .map_err(|e| error_handler(e));
+                .map_err(|e| error_handler(*e));
 
             let _ = backend
                 .run(&job_id, messages_channel)
                 .await
-                .map_err(|e| error_handler(e));
+                .map_err(|e| error_handler(*e));
 
             let _ = backend
                 .set_status(&job_id, Status::Finished)
-                .map_err(|e| error_handler(e));
+                .map_err(|e| error_handler(*e));
         });
 
         Ok(())

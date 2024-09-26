@@ -103,11 +103,11 @@ impl Job {
     /// An `Job` instance.
     ///
     /// # Errors
-    /// One of `Error` enum.
-    pub fn new(routine: impl Routine) -> Result<Self, Error> {
+    /// One of `ApiError` enum.
+    pub fn new(routine: impl Routine) -> Result<Self, ApiError> {
         Ok(Self {
             id: Uuid::now_v1(&GROUP_ID),
-            routine: serde_json::to_string(&routine)?,
+            routine: serde_json::to_string(&routine).map_err(|e| api_err!(e.into()))?,
             status: Status::NotReady,
             payload: Payload {
                 timestamps: Timestamps {
@@ -144,16 +144,22 @@ impl Job {
     /// * ̀`status` - Value to be set.
     ///
     /// # Errors
-    /// One of `Error` enum.
-    pub fn set_status(&mut self, status: Status) -> Result<(), Error> {
+    /// One of `ApiError` enum.
+    pub fn set_status(&mut self, status: Status) -> Result<(), ApiError> {
         match status {
             Status::NotReady => {
-                return Err(Error::InvalidJobStatusTransition((self.status, status)))
+                return Err(api_err!(Error::InvalidJobStatusTransition((
+                    self.status,
+                    status
+                ))))
             }
 
             Status::Ready => {
                 if self.status != Status::NotReady {
-                    return Err(Error::InvalidJobStatusTransition((self.status, status)));
+                    return Err(api_err!(Error::InvalidJobStatusTransition((
+                        self.status,
+                        status
+                    ))));
                 } else {
                     self.payload.timestamps.enqueued = SystemTime::now();
                 }
@@ -161,7 +167,10 @@ impl Job {
 
             Status::Running => {
                 if self.status != Status::Ready {
-                    return Err(Error::InvalidJobStatusTransition((self.status, status)));
+                    return Err(api_err!(Error::InvalidJobStatusTransition((
+                        self.status,
+                        status
+                    ))));
                 } else {
                     self.payload.timestamps.started = SystemTime::now();
                 }
@@ -169,7 +178,10 @@ impl Job {
 
             Status::Finished => {
                 if self.status != Status::Running {
-                    return Err(Error::InvalidJobStatusTransition((self.status, status)));
+                    return Err(api_err!(Error::InvalidJobStatusTransition((
+                        self.status,
+                        status
+                    ))));
                 } else {
                     self.payload.timestamps.finished = SystemTime::now();
                 }
@@ -195,8 +207,8 @@ impl Job {
     /// * `value` - Serializable value to be stored.
     ///
     /// # Errors
-    /// One of `Error` enum.
-    pub fn set_result(&mut self, value: Vec<u8>) -> Result<(), Error> {
+    /// One of `ApiError` enum.
+    pub fn set_result(&mut self, value: Vec<u8>) -> Result<(), ApiError> {
         self.payload.result = value;
 
         Ok(())
@@ -206,9 +218,12 @@ impl Job {
     ///
     /// # Arguments
     /// * `steps` - Number of steps of the job.
-    pub fn set_steps(&mut self, steps: u64) -> Result<(), Error> {
+    ///
+    /// # Errors
+    /// One of `ApiError` enum.
+    pub fn set_steps(&mut self, steps: u64) -> Result<(), ApiError> {
         if self.step > steps {
-            return Err(Error::ProgressionOverflow);
+            return Err(api_err!(Error::ProgressionOverflow));
         }
 
         self.steps = steps;
@@ -220,9 +235,12 @@ impl Job {
     ///
     /// # Arguments
     /// * `step` - Current step of the job.
-    pub fn set_step(&mut self, step: u64) -> Result<(), Error> {
+    ///
+    /// # Errors
+    /// One of `ApiError` enum.
+    pub fn set_step(&mut self, step: u64) -> Result<(), ApiError> {
         if step > self.steps {
-            return Err(Error::ProgressionOverflow);
+            return Err(api_err!(Error::ProgressionOverflow));
         }
 
         self.step = step;
@@ -245,11 +263,14 @@ impl Job {
     ///
     /// # Arguments
     /// * `messages_channel` - Channel used to send message to the job queue.
+    ///
+    /// # Errors
+    /// One of `ApiError` enum.
     pub async fn run<T: Routine>(
         &mut self,
         messages_channel: SharedMessageChannel,
-    ) -> Result<(), Error> {
-        let routine: T = serde_json::from_str(&self.routine)?;
+    ) -> Result<(), ApiError> {
+        let routine: T = serde_json::from_str(&self.routine).map_err(|e| api_err!(e.into()))?;
 
         let result = routine.call(self.id(), messages_channel).await?;
 
