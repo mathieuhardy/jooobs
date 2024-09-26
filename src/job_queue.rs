@@ -31,6 +31,13 @@ pub enum Cmd {
     Stop,
 }
 
+/// Type of notifications that can be sent from the job queue.
+#[derive(Debug)]
+pub enum Notification {
+    /// Error notification.
+    Error(Error),
+}
+
 /// States of the tread running the job queue.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum State {
@@ -49,7 +56,7 @@ pub enum State {
 pub type SharedRuntime = Arc<Mutex<Runtime>>;
 
 /// Type used to share the error handler across threads.
-pub type SharedErrorHandler = Arc<dyn Fn(Error) + Send + Sync>;
+pub type SharedNotificationHandler = Arc<dyn Fn(Notification) + Send + Sync>;
 
 /// Type used to share the message channel.
 pub type SharedMessageChannel = Arc<Mutex<Sender<Message>>>;
@@ -73,8 +80,8 @@ pub struct JobQueue<RoutineType> {
     /// Tokio runtime instance with dedicated thread pool.
     runtime: SharedRuntime,
 
-    /// Error handler function
-    error_handler: SharedErrorHandler,
+    /// Notification handler function
+    notification_handler: SharedNotificationHandler,
 }
 
 impl<RoutineType> JobQueue<RoutineType>
@@ -85,13 +92,13 @@ where
     ///
     /// # Arguments
     /// * `thread_pool_size` - Number of thread to allocate in the internal thread pool.
-    /// * `error_handler` - User handler used to display some error messages.
+    /// * `notification_handler` - User handler used to send notifications.
     ///
     /// # Returns
     /// An instance of `JobQueue`.
     pub fn new(
         thread_pool_size: usize,
-        error_handler: impl Fn(Error) + Send + Sync + 'static,
+        notification_handler: impl Fn(Notification) + Send + Sync + 'static,
     ) -> Result<Self, ApiError> {
         if thread_pool_size == 0 {
             return Err(api_err!(Error::InvalidThreadPoolSize));
@@ -111,7 +118,7 @@ where
             join_handle: None,
             backend: Arc::new(AsyncMutex::new(Box::new(MemoryBackend::new()))),
             runtime: Arc::new(Mutex::new(runtime)),
-            error_handler: Arc::new(error_handler),
+            notification_handler: Arc::new(notification_handler),
         })
     }
 
@@ -141,14 +148,16 @@ where
         let backend = self.backend.clone();
         let runtime = self.runtime.clone();
         let rx = self.rx.clone();
-        let error_handler = self.error_handler.clone();
+        let notification_handler = self.notification_handler.clone();
         let messages_channel = self.tx.clone();
 
         let handle = std::thread::spawn(move || {
             let rx = match rx.lock() {
                 Ok(rx) => rx,
                 Err(e) => {
-                    error_handler(Error::CannotAccessReceiver(e.to_string()));
+                    notification_handler(Notification::Error(Error::CannotAccessReceiver(
+                        e.to_string(),
+                    )));
                     return;
                 }
             };
@@ -161,7 +170,7 @@ where
                 JobQueue::process_message(
                     backend.clone(),
                     runtime.clone(),
-                    error_handler.clone(),
+                    notification_handler.clone(),
                     messages_channel.clone(),
                     msg,
                 );
@@ -326,7 +335,7 @@ where
     fn process_message(
         backend: SharedBackend<RoutineType>,
         runtime: SharedRuntime,
-        error_handler: SharedErrorHandler,
+        notification_handler: SharedNotificationHandler,
         messages_channel: SharedMessageChannel,
         msg: Message,
     ) {
@@ -335,16 +344,17 @@ where
                 let _ = JobQueue::process_job(
                     backend,
                     runtime,
-                    error_handler.clone(),
+                    notification_handler.clone(),
                     messages_channel.clone(),
                     job,
                 )
-                .map_err(|e| error_handler(*e));
+                .map_err(|e| notification_handler(Notification::Error(*e)));
             }
 
             Message::Command(cmd) => {
-                let _ = JobQueue::process_command(backend, runtime, error_handler.clone(), cmd)
-                    .map_err(|e| error_handler(*e));
+                let _ =
+                    JobQueue::process_command(backend, runtime, notification_handler.clone(), cmd)
+                        .map_err(|e| notification_handler(Notification::Error(*e)));
             }
         }
     }
@@ -353,12 +363,12 @@ where
     ///
     /// # Arguments
     /// * `backend` - Backend instance used to process the jobs.
-    /// * `error_handler` - Handler for logging errors.
+    /// * `notification_handler` - Handler for notifications.
     /// * `cmd` - Command to be processed.
     fn process_command(
         backend: SharedBackend<RoutineType>,
         runtime: SharedRuntime,
-        error_handler: SharedErrorHandler,
+        notification_handler: SharedNotificationHandler,
         cmd: Cmd,
     ) -> Result<(), ApiError> {
         let runtime = runtime
@@ -372,13 +382,13 @@ where
                 Cmd::SetSteps(job_id, steps) => {
                     let _ = backend
                         .set_steps(&job_id, steps)
-                        .map_err(|e| error_handler(*e));
+                        .map_err(|e| notification_handler(Notification::Error(*e)));
                 }
 
                 Cmd::SetStep(job_id, step) => {
                     let _ = backend
                         .set_step(&job_id, step)
-                        .map_err(|e| error_handler(*e));
+                        .map_err(|e| notification_handler(Notification::Error(*e)));
                 }
 
                 _ => (),
@@ -393,12 +403,12 @@ where
     /// # Arguments
     /// * `backend` - Backend instance used to process the jobs.
     /// * `runtime` - Runtime instance used to process the jobs.
-    /// * `error_handler` - Handler for logging errors.
+    /// * `notification_handler` - Handler for notifications.
     /// * `job` - Job to be processed.
     fn process_job(
         backend: SharedBackend<RoutineType>,
         runtime: SharedRuntime,
-        error_handler: SharedErrorHandler,
+        notification_handler: SharedNotificationHandler,
         messages_channel: SharedMessageChannel,
         job: Job,
     ) -> Result<(), ApiError> {
@@ -411,11 +421,13 @@ where
         runtime.block_on(async {
             let mut backend = backend.lock().await;
 
-            let _ = backend.schedule(job).map_err(|e| error_handler(*e));
+            let _ = backend
+                .schedule(job)
+                .map_err(|e| notification_handler(Notification::Error(*e)));
 
             let _ = backend
                 .set_status(&job_id, Status::Ready)
-                .map_err(|e| error_handler(*e));
+                .map_err(|e| notification_handler(Notification::Error(*e)));
         });
 
         runtime.spawn(async move {
@@ -423,16 +435,16 @@ where
 
             let _ = backend
                 .set_status(&job_id, Status::Running)
-                .map_err(|e| error_handler(*e));
+                .map_err(|e| notification_handler(Notification::Error(*e)));
 
             let _ = backend
                 .run(&job_id, messages_channel)
                 .await
-                .map_err(|e| error_handler(*e));
+                .map_err(|e| notification_handler(Notification::Error(*e)));
 
             let _ = backend
                 .set_status(&job_id, Status::Finished)
-                .map_err(|e| error_handler(*e));
+                .map_err(|e| notification_handler(Notification::Error(*e)));
         });
 
         Ok(())

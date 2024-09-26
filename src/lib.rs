@@ -16,11 +16,10 @@ mod tests {
 
     static FLAG: Mutex<bool> = Mutex::new(false);
 
-    fn error_handler<T>(err: T)
-    where
-        T: std::fmt::Display,
-    {
-        println!("ERR: {err}");
+    fn notification_handler(notification: Notification) {
+        match notification {
+            Notification::Error(e) => println!("ERR: {e}"),
+        }
     }
 
     fn reset_flag() {
@@ -84,7 +83,7 @@ mod tests {
 
     #[test]
     fn nominal() {
-        let mut jq = JobQueue::<Routines>::new(1, error_handler).unwrap();
+        let mut jq = JobQueue::<Routines>::new(1, notification_handler).unwrap();
 
         reset_flag();
 
@@ -125,7 +124,7 @@ mod tests {
 
         #[test]
         fn not_startable() {
-            let mut jq = JobQueue::<Routines>::new(1, error_handler).unwrap();
+            let mut jq = JobQueue::<Routines>::new(1, notification_handler).unwrap();
 
             Runtime::new().unwrap().block_on(async {
                 jq.start().unwrap();
@@ -135,10 +134,10 @@ mod tests {
 
         #[test]
         fn not_joinable() {
-            let jq = JobQueue::<Routines>::new(1, error_handler).unwrap();
+            let jq = JobQueue::<Routines>::new(1, notification_handler).unwrap();
             assert!(jq.join().is_err());
 
-            let mut jq = JobQueue::<Routines>::new(1, error_handler).unwrap();
+            let mut jq = JobQueue::<Routines>::new(1, notification_handler).unwrap();
 
             Runtime::new().unwrap().block_on(async {
                 jq.start().unwrap();
@@ -149,7 +148,7 @@ mod tests {
 
         #[test]
         fn not_stoppable() {
-            let mut jq = JobQueue::<Routines>::new(1, error_handler).unwrap();
+            let mut jq = JobQueue::<Routines>::new(1, notification_handler).unwrap();
 
             Runtime::new().unwrap().block_on(async {
                 assert!(jq.stop().is_err());
