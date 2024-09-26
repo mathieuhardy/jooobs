@@ -48,6 +48,8 @@ pub enum Error {
     MissingChannel,
     #[error("Missing thread's join handle")]
     MissingJoinHandle,
+    #[error("Missing notification handler")]
+    MissingNotificationHandler,
     #[error("Queue is not started")]
     NotStarted,
     #[error("Queue is not stopping")]

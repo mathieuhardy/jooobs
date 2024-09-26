@@ -2,6 +2,7 @@ pub mod backend;
 pub mod error;
 pub mod job;
 pub mod job_queue;
+pub mod job_queue_builder;
 pub mod memory_backend;
 pub mod prelude;
 
@@ -91,7 +92,10 @@ mod tests {
 
     #[test]
     fn nominal() {
-        let mut jq = JobQueue::<Routines>::new(1, notification_handler).unwrap();
+        let mut jq = JobQueueBuilder::<Routines>::new(1)
+            .unwrap()
+            .notification_handler(notification_handler)
+            .build();
 
         reset_flag();
 
@@ -132,7 +136,10 @@ mod tests {
 
         #[test]
         fn not_startable() {
-            let mut jq = JobQueue::<Routines>::new(1, notification_handler).unwrap();
+            let mut jq = JobQueueBuilder::<Routines>::new(1)
+                .unwrap()
+                .notification_handler(notification_handler)
+                .build();
 
             Runtime::new().unwrap().block_on(async {
                 jq.start().unwrap();
@@ -142,10 +149,17 @@ mod tests {
 
         #[test]
         fn not_joinable() {
-            let jq = JobQueue::<Routines>::new(1, notification_handler).unwrap();
+            let jq = JobQueueBuilder::<Routines>::new(1)
+                .unwrap()
+                .notification_handler(notification_handler)
+                .build();
+
             assert!(jq.join().is_err());
 
-            let mut jq = JobQueue::<Routines>::new(1, notification_handler).unwrap();
+            let mut jq = JobQueueBuilder::<Routines>::new(1)
+                .unwrap()
+                .notification_handler(notification_handler)
+                .build();
 
             Runtime::new().unwrap().block_on(async {
                 jq.start().unwrap();
@@ -156,7 +170,10 @@ mod tests {
 
         #[test]
         fn not_stoppable() {
-            let mut jq = JobQueue::<Routines>::new(1, notification_handler).unwrap();
+            let mut jq = JobQueueBuilder::<Routines>::new(1)
+                .unwrap()
+                .notification_handler(notification_handler)
+                .build();
 
             Runtime::new().unwrap().block_on(async {
                 assert!(jq.stop().is_err());

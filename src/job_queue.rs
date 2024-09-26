@@ -98,14 +98,10 @@ where
     ///
     /// # Arguments
     /// * `thread_pool_size` - Number of thread to allocate in the internal thread pool.
-    /// * `notification_handler` - User handler used to send notifications.
     ///
     /// # Returns
     /// An instance of `JobQueue`.
-    pub fn new(
-        thread_pool_size: usize,
-        notification_handler: impl Fn(Notification) + Send + Sync + 'static,
-    ) -> Result<Self, ApiError> {
+    pub fn new(thread_pool_size: usize) -> Result<Self, ApiError> {
         if thread_pool_size == 0 {
             return Err(api_err!(Error::InvalidThreadPoolSize));
         }
@@ -124,7 +120,7 @@ where
             join_handle: None,
             backend: Arc::new(AsyncMutex::new(Box::new(MemoryBackend::new()))),
             runtime: Arc::new(Mutex::new(runtime)),
-            notification_handler: Arc::new(notification_handler),
+            notification_handler: Arc::new(|_| {}),
         })
     }
 
@@ -142,6 +138,17 @@ where
     /// * `backend` - Backend instance that will replace the current one.
     pub fn set_backend(&mut self, backend: impl Backend<RoutineType> + 'static) {
         self.backend = Arc::new(AsyncMutex::new(Box::new(backend)));
+    }
+
+    /// Sets the notification handler used by the queue to notify client.
+    ///
+    /// # Arguments:
+    /// * `handler` - Handler instance that will replace the current one.
+    pub fn set_notification_handler(
+        &mut self,
+        handler: impl Fn(Notification) + Send + Sync + 'static,
+    ) {
+        self.notification_handler = Arc::new(handler);
     }
 
     /// Starts the job queue with async support.
