@@ -64,7 +64,11 @@ pub struct Timestamps {
 /// Trait that must be derived for the list of possible routines handled by the jobs.
 #[async_trait]
 pub trait Routine: for<'a> Deserialize<'a> + Serialize + Send {
-    async fn call(&self, job: &mut Job) -> Result<Vec<u8>, Error>;
+    async fn call(
+        &self,
+        job_id: Uuid,
+        notifications: SharedMessageChannel,
+    ) -> Result<Vec<u8>, Error>;
 }
 
 /// Description of a job.
@@ -202,8 +206,14 @@ impl Job {
     ///
     /// # Arguments
     /// * `steps` - Number of steps of the job.
-    pub fn set_steps(&mut self, steps: u64) {
+    pub fn set_steps(&mut self, steps: u64) -> Result<(), Error> {
+        if self.step > steps {
+            return Err(Error::ProgressionOverflow);
+        }
+
         self.steps = steps;
+
+        Ok(())
     }
 
     /// Set the current step of the job.
@@ -232,10 +242,16 @@ impl Job {
     }
 
     /// Call the underlying routine of the job.
-    pub async fn run<T: Routine>(&mut self) -> Result<(), Error> {
+    ///
+    /// # Arguments
+    /// * `notifications` - Channel used to send message to the job queue (for notifications).
+    pub async fn run<T: Routine>(
+        &mut self,
+        notifications: SharedMessageChannel,
+    ) -> Result<(), Error> {
         let routine: T = serde_json::from_str(&self.routine)?;
 
-        let result = routine.call(self).await?;
+        let result = routine.call(self.id(), notifications).await?;
 
         self.set_result(result)
     }

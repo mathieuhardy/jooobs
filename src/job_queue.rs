@@ -21,6 +21,12 @@ pub enum Message {
 /// Commands handled by the thread of the job queue.
 #[derive(PartialEq)]
 pub enum Cmd {
+    /// Set current step for a job.
+    SetStep(Uuid, u64),
+
+    /// Set number of steps for a job.
+    SetSteps(Uuid, u64),
+
     /// Stop the job queue.
     Stop,
 }
@@ -45,12 +51,15 @@ pub type SharedRuntime = Arc<Mutex<Runtime>>;
 /// Type used to share the error handler across threads.
 pub type SharedErrorHandler = Arc<dyn Fn(Error) + Send + Sync>;
 
+/// Type used to share the message channel.
+pub type SharedMessageChannel = Arc<Mutex<Sender<Message>>>;
+
 pub struct JobQueue<RoutineType> {
     /// State of the job queue.
     state: State,
 
     /// Channel used to send messages to the thread of the job queue.
-    tx: Sender<Message>,
+    tx: SharedMessageChannel,
 
     /// Channel used to receive messages from the thread of the job queue.
     rx: Arc<Mutex<Receiver<Message>>>,
@@ -96,7 +105,7 @@ where
 
         Ok(Self {
             state: State::default(),
-            tx,
+            tx: Arc::new(Mutex::new(tx)),
             rx: Arc::new(Mutex::new(rx)),
             join_handle: None,
             backend: Arc::new(AsyncMutex::new(Box::new(MemoryBackend::new()))),
@@ -132,6 +141,7 @@ where
         let runtime = self.runtime.clone();
         let rx = self.rx.clone();
         let error_handler = self.error_handler.clone();
+        let notifications = self.tx.clone();
 
         let handle = std::thread::spawn(move || {
             let rx = match rx.lock() {
@@ -151,6 +161,7 @@ where
                     backend.clone(),
                     runtime.clone(),
                     error_handler.clone(),
+                    notifications.clone(),
                     msg,
                 );
             }
@@ -197,6 +208,8 @@ where
         self.state = State::Stopping;
 
         self.tx
+            .lock()
+            .unwrap() // TODO
             .send(Message::Command(Cmd::Stop))
             .map_err(Into::<Error>::into)
     }
@@ -212,6 +225,8 @@ where
         let job_id = job.id();
 
         self.tx
+            .lock()
+            .unwrap() // TODO
             .send(Message::Job(job))
             .map_err(Into::<Error>::into)?;
 
@@ -311,12 +326,65 @@ where
         backend: SharedBackend<RoutineType>,
         runtime: SharedRuntime,
         error_handler: SharedErrorHandler,
+        notifications: SharedMessageChannel,
         msg: Message,
     ) {
-        if let Message::Job(job) = msg {
-            let _ = JobQueue::process_job(backend, runtime, error_handler.clone(), job)
+        match msg {
+            Message::Job(job) => {
+                let _ = JobQueue::process_job(
+                    backend,
+                    runtime,
+                    error_handler.clone(),
+                    notifications.clone(),
+                    job,
+                )
                 .map_err(|e| error_handler(e));
+            }
+
+            Message::Command(cmd) => {
+                let _ = JobQueue::process_command(backend, runtime, error_handler.clone(), cmd)
+                    .map_err(|e| error_handler(e));
+            }
         }
+    }
+
+    /// Processes a command.
+    ///
+    /// # Arguments
+    /// * `backend` - Backend instance used to process the jobs.
+    /// * `error_handler` - Handler for logging errors.
+    /// * `cmd` - Command to be processed.
+    fn process_command(
+        backend: SharedBackend<RoutineType>,
+        runtime: SharedRuntime,
+        error_handler: SharedErrorHandler,
+        cmd: Cmd,
+    ) -> Result<(), Error> {
+        let runtime = runtime
+            .lock()
+            .map_err(|e| Error::CannotAccessRuntime(e.to_string()))?;
+
+        runtime.block_on(async {
+            let mut backend = backend.lock().await;
+
+            match cmd {
+                Cmd::SetSteps(job_id, steps) => {
+                    let _ = backend
+                        .set_steps(&job_id, steps)
+                        .map_err(|e| error_handler(e));
+                }
+
+                Cmd::SetStep(job_id, step) => {
+                    let _ = backend
+                        .set_step(&job_id, step)
+                        .map_err(|e| error_handler(e));
+                }
+
+                _ => (),
+            }
+        });
+
+        Ok(())
     }
 
     /// Processes a job.
@@ -330,6 +398,7 @@ where
         backend: SharedBackend<RoutineType>,
         runtime: SharedRuntime,
         error_handler: SharedErrorHandler,
+        notifications: SharedMessageChannel,
         job: Job,
     ) -> Result<(), Error> {
         let job_id = job.id();
@@ -355,7 +424,10 @@ where
                 .set_status(&job_id, Status::Running)
                 .map_err(|e| error_handler(e));
 
-            let _ = backend.run(&job_id).await.map_err(|e| error_handler(e));
+            let _ = backend
+                .run(&job_id, notifications)
+                .await
+                .map_err(|e| error_handler(e));
 
             let _ = backend
                 .set_status(&job_id, Status::Finished)

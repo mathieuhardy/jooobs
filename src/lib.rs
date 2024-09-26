@@ -47,19 +47,34 @@ mod tests {
 
     #[async_trait]
     impl Routine for Routines {
-        async fn call(&self, job: &mut Job) -> Result<Vec<u8>, Error> {
+        async fn call(
+            &self,
+            job_id: Uuid,
+            notifications: SharedMessageChannel,
+        ) -> Result<Vec<u8>, Error> {
             match self {
                 Self::SetFlag(args) => {
+                    let notifications = notifications.lock().unwrap();
+
                     set_flag(args.clone());
-                    job.set_steps(2);
+
+                    notifications
+                        .send(Message::Command(Cmd::SetSteps(job_id, 2)))
+                        .unwrap();
 
                     let json = serde_json::json!({
                         "result": "SET_FLAG_OK",
                     });
-                    job.set_step(1).unwrap();
+
+                    notifications
+                        .send(Message::Command(Cmd::SetStep(job_id, 1)))
+                        .unwrap();
 
                     let bytes = json.to_string().into_bytes();
-                    job.set_step(2).unwrap();
+
+                    notifications
+                        .send(Message::Command(Cmd::SetStep(job_id, 2)))
+                        .unwrap();
 
                     Ok(bytes)
                 }

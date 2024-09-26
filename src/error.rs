@@ -13,6 +13,8 @@ pub enum Error {
     CannotAccessReceiver(String),
     #[error("Cannot access runtime ({0})")]
     CannotAccessRuntime(String),
+    #[error("Cannot access sender ({0})")]
+    CannotAccessSender(String),
     #[error("Cannot join the queue thread")]
     CannotJoinThread,
     #[error("{0}")]

@@ -18,7 +18,7 @@ pub trait Backend<Routine>: Send {
     ///
     /// # Arguments:
     /// * `id` - Job identifier to be run.
-    async fn run(&mut self, id: &Uuid) -> Result<(), Error>;
+    async fn run(&mut self, id: &Uuid, notifications: SharedMessageChannel) -> Result<(), Error>;
 
     /// Get the status of a job.
     ///
@@ -43,6 +43,20 @@ pub trait Backend<Routine>: Send {
     /// # Returns
     /// The result of the job as list of bytes.
     fn result(&self, id: &Uuid) -> Result<&[u8], Error>;
+
+    /// Set the number of steps for a job.
+    ///
+    /// # Arguments:
+    /// * `id` - Job identifier to be modified.
+    /// * `steps` - Number of steps to set.
+    fn set_steps(&mut self, id: &Uuid, steps: u64) -> Result<(), Error>;
+
+    /// Set the current step for a job.
+    ///
+    /// # Arguments:
+    /// * `id` - Job identifier to be modified.
+    /// * `step` - Current step to set.
+    fn set_step(&mut self, id: &Uuid, step: u64) -> Result<(), Error>;
 
     /// Get the progression of a job.
     ///
