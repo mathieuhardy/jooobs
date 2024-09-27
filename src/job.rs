@@ -7,7 +7,7 @@ use std::time::SystemTime;
 use crate::prelude::*;
 
 lazy_static! {
-    /// This is an example for using doc comment attributes
+    /// Random data used to generate UUID V1 values.
     static ref GROUP_ID: [u8; 6] = rand::thread_rng().gen::<[u8; 6]>();
 }
 
@@ -64,6 +64,17 @@ pub struct Timestamps {
 /// Trait that must be derived for the list of possible routines handled by the jobs.
 #[async_trait]
 pub trait Routine: for<'a> Deserialize<'a> + Serialize + Send {
+    /// Function that is called when the job is processed.
+    ///
+    /// # Arguments
+    /// * `job_id` - ID of the job this routine belongs to.
+    /// * `messages_channel` - Channel to be used to send back messages to the job queue.
+    ///
+    /// # Returns
+    /// A list of bytes: the result of the job to be stored.
+    ///
+    /// # Errors
+    /// One of `Error` enum.
     async fn call(
         &self,
         job_id: Uuid,
@@ -103,7 +114,7 @@ impl Job {
     /// An `Job` instance.
     ///
     /// # Errors
-    /// One of `ApiError` enum.
+    /// One of `Error` enum.
     pub fn new(routine: impl Routine) -> Result<Self, ApiError> {
         Ok(Self {
             id: Uuid::now_v1(&GROUP_ID),
@@ -144,7 +155,7 @@ impl Job {
     /// * ̀`status` - Value to be set.
     ///
     /// # Errors
-    /// One of `ApiError` enum.
+    /// One of `Error` enum.
     pub fn set_status(&mut self, status: Status) -> Result<(), ApiError> {
         match status {
             Status::NotReady => {
@@ -207,7 +218,7 @@ impl Job {
     /// * `value` - Serializable value to be stored.
     ///
     /// # Errors
-    /// One of `ApiError` enum.
+    /// One of `Error` enum.
     pub fn set_result(&mut self, value: Vec<u8>) -> Result<(), ApiError> {
         self.payload.result = value;
 
@@ -223,15 +234,15 @@ impl Job {
     /// Current progression.
     ///
     /// # Errors
-    /// One of `ApiError` enum.
+    /// One of `Error` enum.
     pub fn set_steps(&mut self, steps: u64) -> Result<Progression, ApiError> {
-        if self.step > steps {
-            return Err(api_err!(Error::ProgressionOverflow));
+        if self.step <= steps {
+            self.steps = steps;
+
+            Ok(self.progression())
+        } else {
+            Err(api_err!(Error::ProgressionOverflow))
         }
-
-        self.steps = steps;
-
-        Ok(self.progression())
     }
 
     /// Set the current step of the job.
@@ -243,15 +254,15 @@ impl Job {
     /// Current progression.
     ///
     /// # Errors
-    /// One of `ApiError` enum.
+    /// One of `Error` enum.
     pub fn set_step(&mut self, step: u64) -> Result<Progression, ApiError> {
-        if step > self.steps {
-            return Err(api_err!(Error::ProgressionOverflow));
+        if step <= self.steps {
+            self.step = step;
+
+            Ok(self.progression())
+        } else {
+            Err(api_err!(Error::ProgressionOverflow))
         }
-
-        self.step = step;
-
-        Ok(self.progression())
     }
 
     /// Get the progression of the job.
@@ -271,15 +282,18 @@ impl Job {
     /// * `messages_channel` - Channel used to send message to the job queue.
     ///
     /// # Errors
-    /// One of `ApiError` enum.
+    /// One of `Error` enum.
     pub async fn run<T: Routine>(
         &mut self,
         messages_channel: SharedMessageChannel,
     ) -> Result<(), ApiError> {
+        // Routine information is stored as string so deserialize it
         let routine: T = serde_json::from_str(&self.routine).map_err(|e| api_err!(e.into()))?;
 
+        // Call the routine
         let result = routine.call(self.id(), messages_channel).await?;
 
+        // Store the result
         self.set_result(result)
     }
 }

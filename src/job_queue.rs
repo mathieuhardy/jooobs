@@ -8,6 +8,15 @@ use tokio::sync::Mutex as AsyncMutex;
 use crate::memory_backend::*;
 use crate::prelude::*;
 
+/// Type used to share the runtime instance across threads.
+pub type SharedRuntime = Arc<Mutex<Runtime>>;
+
+/// Type used to share the error handler across threads.
+pub type SharedNotificationHandler = Arc<dyn Fn(Notification) + Send + Sync>;
+
+/// Type used to share the message channel.
+pub type SharedMessageChannel = Arc<Mutex<Sender<Message>>>;
+
 /// Type of messages that can be sent to the job queue.
 #[derive(PartialEq)]
 pub enum Message {
@@ -58,15 +67,7 @@ pub enum State {
     Stopping,
 }
 
-/// Type used to share the runtime instance across threads.
-pub type SharedRuntime = Arc<Mutex<Runtime>>;
-
-/// Type used to share the error handler across threads.
-pub type SharedNotificationHandler = Arc<dyn Fn(Notification) + Send + Sync>;
-
-/// Type used to share the message channel.
-pub type SharedMessageChannel = Arc<Mutex<Sender<Message>>>;
-
+/// Structure of a job queue.
 pub struct JobQueue<RoutineType> {
     /// State of the job queue.
     state: State,
@@ -101,13 +102,18 @@ where
     ///
     /// # Returns
     /// An instance of `JobQueue`.
+    ///
+    /// # Errors
+    /// One of `Error` enum.
     pub fn new(thread_pool_size: usize) -> Result<Self, ApiError> {
         if thread_pool_size == 0 {
             return Err(api_err!(Error::InvalidThreadPoolSize));
         }
 
+        // Create the channel for communicating with the thread of the queue.
         let (tx, rx) = std::sync::mpsc::channel();
 
+        // This Tokio runtime will carry the threads for each job.
         let runtime = Builder::new_multi_thread()
             .worker_threads(thread_pool_size)
             .build()
@@ -155,9 +161,13 @@ where
     ///
     /// # Errors
     /// One of `Error` enum.
+    ///
+    /// # Errors
+    /// One of `Error` enum.
     pub fn start(&mut self) -> Result<(), ApiError> {
         self.try_starting()?;
 
+        // Clone ressources to be used by the thread
         let backend = self.backend.clone();
         let runtime = self.runtime.clone();
         let rx = self.rx.clone();
@@ -171,15 +181,18 @@ where
                     notification_handler(Notification::Error(Error::CannotAccessReceiver(
                         e.to_string(),
                     )));
+
                     return;
                 }
             };
 
             while let Ok(msg) = rx.recv() {
+                // Special case used to stop the thread.
                 if msg == Message::Command(Cmd::Stop) {
                     break;
                 }
 
+                // Process the message received: job or command.
                 JobQueue::process_message(
                     backend.clone(),
                     runtime.clone(),
@@ -213,11 +226,11 @@ where
             //.lock()
             //.unwrap()
             //.shutdown_timeout(std::time::Duration::from_millis(100));
-        } else {
-            return Err(api_err!(Error::MissingJoinHandle));
-        }
 
-        Ok(())
+            Ok(())
+        } else {
+            Err(api_err!(Error::MissingJoinHandle))
+        }
     }
 
     /// Send a stop command to the queue.
@@ -241,6 +254,9 @@ where
     ///
     /// # Arguments
     /// * `job` - Job to be enqueued.
+    ///
+    /// # Returns
+    /// The unique ID of the job.
     ///
     /// # Errors
     /// One of `Error` enum.
@@ -267,9 +283,7 @@ where
     /// # Errors
     /// One of `Error` enum.
     pub async fn job_status(&self, id: &Uuid) -> Result<Status, ApiError> {
-        let backend = self.backend.lock().await;
-
-        backend.status(id)
+        self.backend.lock().await.status(id)
     }
 
     /// Get the result of a job.
@@ -283,10 +297,7 @@ where
     /// # Errors
     /// One of `Error` enum.
     pub async fn job_result(&self, id: &Uuid) -> Result<Vec<u8>, ApiError> {
-        let backend = self.backend.lock().await;
-
-        let value = backend.result(id)?;
-        Ok(value.to_vec())
+        Ok(self.backend.lock().await.result(id)?.to_vec())
     }
 
     /// Get the progression of a job.
@@ -300,9 +311,7 @@ where
     /// # Errors
     /// One of `Error` enum.
     pub async fn job_progression(&self, id: &Uuid) -> Result<Progression, ApiError> {
-        let backend = self.backend.lock().await;
-
-        backend.progression(id)
+        self.backend.lock().await.progression(id)
     }
 
     /// Checks if the current state allows to start the queue.
@@ -344,6 +353,10 @@ where
     /// Processes a message (can be a command or job).
     ///
     /// # Arguments
+    /// * `backend` - Backend instance used to process the jobs.
+    /// * `runtime` - Runtime carrying the thread pool.
+    /// * `notification_handler` - Handler for notifications.
+    /// * `messages_channel` - Channel used to communicate with the queue thread.
     /// * `msg` - Message to be processed.
     fn process_message(
         backend: SharedBackend<RoutineType>,
@@ -376,8 +389,12 @@ where
     ///
     /// # Arguments
     /// * `backend` - Backend instance used to process the jobs.
+    /// * `runtime` - Runtime carrying the thread pool.
     /// * `notification_handler` - Handler for notifications.
     /// * `cmd` - Command to be processed.
+    ///
+    /// # Errors
+    /// One of `Error` enum.
     fn process_command(
         backend: SharedBackend<RoutineType>,
         runtime: SharedRuntime,
@@ -421,9 +438,13 @@ where
     ///
     /// # Arguments
     /// * `backend` - Backend instance used to process the jobs.
-    /// * `runtime` - Runtime instance used to process the jobs.
+    /// * `runtime` - Runtime carrying the thread pool.
     /// * `notification_handler` - Handler for notifications.
+    /// * `messages_channel` - Channel used to communicate with the queue thread.
     /// * `job` - Job to be processed.
+    ///
+    /// # Errors
+    /// One of `Error` enum.
     fn process_job(
         backend: SharedBackend<RoutineType>,
         runtime: SharedRuntime,
@@ -440,6 +461,7 @@ where
         runtime.block_on(async {
             let mut backend = backend.lock().await;
 
+            // Push the job in the backend (to be stored)
             if backend
                 .schedule(job)
                 .map_err(|e| notification_handler(Notification::Error(*e)))
@@ -448,6 +470,7 @@ where
                 return;
             }
 
+            // Set its status to ready (can be processed)
             let _ = backend
                 .set_status(&job_id, Status::Ready)
                 .map_err(|e| notification_handler(Notification::Error(*e)));
@@ -456,6 +479,7 @@ where
         runtime.spawn(async move {
             let mut backend = backend.lock().await;
 
+            // Seet status of the job to `Status::Running`
             if backend
                 .set_status(&job_id, Status::Running)
                 .map_err(|e| notification_handler(Notification::Error(*e)))
@@ -466,6 +490,7 @@ where
 
             notification_handler(Notification::Status(job_id, Status::Running));
 
+            // Call the routine of the job
             if backend
                 .run(&job_id, messages_channel)
                 .await
@@ -475,6 +500,7 @@ where
                 return;
             }
 
+            // Seet status of the job to `Status::Finished`
             if backend
                 .set_status(&job_id, Status::Finished)
                 .map_err(|e| notification_handler(Notification::Error(*e)))

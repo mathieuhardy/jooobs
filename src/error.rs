@@ -3,6 +3,7 @@ use uuid::Uuid;
 use crate::job::Status;
 use crate::job_queue::Message;
 
+/// Macro used to box an error to fit the functions return `ApiError`.
 #[macro_export]
 macro_rules! api_err {
     ($e: expr) => {
@@ -10,6 +11,7 @@ macro_rules! api_err {
     };
 }
 
+/// Alias to be used for functions returns.
 pub type ApiError = Box<Error>;
 
 #[derive(Debug, thiserror::Error)]
