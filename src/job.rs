@@ -63,7 +63,7 @@ pub struct Timestamps {
 
 /// Trait that must be derived for the list of possible routines handled by the jobs.
 #[async_trait]
-pub trait Routine: for<'a> Deserialize<'a> + Serialize + Send {
+pub trait Routine<Context>: for<'a> Deserialize<'a> + Serialize + Send {
     /// Function that is called when the job is processed.
     ///
     /// # Arguments
@@ -79,6 +79,7 @@ pub trait Routine: for<'a> Deserialize<'a> + Serialize + Send {
         &self,
         job_id: Uuid,
         messages_channel: SharedMessageChannel,
+        context: Option<Shared<Context>>,
     ) -> Result<Vec<u8>, Error>;
 }
 
@@ -115,7 +116,7 @@ impl Job {
     ///
     /// # Errors
     /// One of `Error` enum.
-    pub fn new(routine: impl Routine) -> Result<Self, ApiError> {
+    pub fn new<Context>(routine: impl Routine<Context>) -> Result<Self, ApiError> {
         Ok(Self {
             id: Uuid::now_v1(&GROUP_ID),
             routine: serde_json::to_string(&routine).map_err(|e| api_err!(e.into()))?,
@@ -283,15 +284,16 @@ impl Job {
     ///
     /// # Errors
     /// One of `Error` enum.
-    pub async fn run<T: Routine>(
+    pub async fn run<T: Routine<Context>, Context>(
         &mut self,
         messages_channel: SharedMessageChannel,
+        context: Option<Shared<Context>>,
     ) -> Result<(), ApiError> {
         // Routine information is stored as string so deserialize it
         let routine: T = serde_json::from_str(&self.routine).map_err(|e| api_err!(e.into()))?;
 
         // Call the routine
-        let result = routine.call(self.id(), messages_channel).await?;
+        let result = routine.call(self.id(), messages_channel, context).await?;
 
         // Store the result
         self.set_result(result)

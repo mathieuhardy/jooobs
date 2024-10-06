@@ -11,9 +11,10 @@ pub struct MemoryBackend {
 }
 
 #[async_trait]
-impl<RoutineType> Backend<RoutineType> for MemoryBackend
+impl<RoutineType, Context> Backend<RoutineType, Context> for MemoryBackend
 where
-    RoutineType: Routine + Sync,
+    RoutineType: Routine<Context> + Sync,
+    Context: Send,
 {
     fn schedule(&mut self, job: Job) -> Result<(), ApiError> {
         self.jobs.insert(job.id(), job);
@@ -27,7 +28,8 @@ where
         messages_channel: SharedMessageChannel,
     ) -> Result<(), ApiError> {
         if let Some(job) = self.jobs.get_mut(id) {
-            job.run::<RoutineType>(messages_channel).await?;
+            job.run::<RoutineType, Context>(messages_channel, None)
+                .await?;
 
             Ok(())
         } else {

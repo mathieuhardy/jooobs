@@ -5,6 +5,7 @@ pub mod job_queue;
 pub mod job_queue_builder;
 pub mod memory_backend;
 pub mod prelude;
+pub mod types;
 
 #[cfg(test)]
 mod tests {
@@ -16,6 +17,10 @@ mod tests {
     use crate::prelude::*;
 
     static FLAG: Mutex<bool> = Mutex::new(false);
+
+    struct Context {
+        name: String,
+    }
 
     fn notification_handler(notification: Notification) {
         match notification {
@@ -54,12 +59,17 @@ mod tests {
     }
 
     #[async_trait]
-    impl Routine for Routines {
+    impl Routine<Context> for Routines {
         async fn call(
             &self,
             job_id: Uuid,
             messages_channel: SharedMessageChannel,
+            context: Option<Shared<Context>>,
         ) -> Result<Vec<u8>, Error> {
+            if let Some(context) = context {
+                assert_eq!(&context.lock().unwrap().name, "UNIT_TESTING")
+            }
+
             match self {
                 Self::SetFlag(args) => {
                     let messages_channel = messages_channel.lock().unwrap();
@@ -92,9 +102,12 @@ mod tests {
 
     #[test]
     fn nominal() {
-        let mut jq = JobQueueBuilder::<Routines>::new(1)
+        let mut jq = JobQueueBuilder::<Routines, Context>::new(1)
             .unwrap()
             .notification_handler(notification_handler)
+            .context(Context {
+                name: "UNIT_TESTING".to_string(),
+            })
             .build();
 
         reset_flag();
@@ -136,7 +149,7 @@ mod tests {
 
         #[test]
         fn not_startable() {
-            let mut jq = JobQueueBuilder::<Routines>::new(1)
+            let mut jq = JobQueueBuilder::<Routines, Context>::new(1)
                 .unwrap()
                 .notification_handler(notification_handler)
                 .build();
@@ -149,14 +162,14 @@ mod tests {
 
         #[test]
         fn not_joinable() {
-            let jq = JobQueueBuilder::<Routines>::new(1)
+            let jq = JobQueueBuilder::<Routines, Context>::new(1)
                 .unwrap()
                 .notification_handler(notification_handler)
                 .build();
 
             assert!(jq.join().is_err());
 
-            let mut jq = JobQueueBuilder::<Routines>::new(1)
+            let mut jq = JobQueueBuilder::<Routines, Context>::new(1)
                 .unwrap()
                 .notification_handler(notification_handler)
                 .build();
@@ -170,7 +183,7 @@ mod tests {
 
         #[test]
         fn not_stoppable() {
-            let mut jq = JobQueueBuilder::<Routines>::new(1)
+            let mut jq = JobQueueBuilder::<Routines, Context>::new(1)
                 .unwrap()
                 .notification_handler(notification_handler)
                 .build();

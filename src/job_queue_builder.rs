@@ -1,13 +1,14 @@
 use crate::prelude::*;
 
-pub struct JobQueueBuilder<RoutineType> {
+pub struct JobQueueBuilder<RoutineType, Context> {
     /// Job queue
-    jq: JobQueue<RoutineType>,
+    jq: JobQueue<RoutineType, Context>,
 }
 
-impl<RoutineType> JobQueueBuilder<RoutineType>
+impl<RoutineType, Context> JobQueueBuilder<RoutineType, Context>
 where
-    RoutineType: Routine + Sync + 'static,
+    RoutineType: Routine<Context> + Sync + 'static,
+    Context: Send + 'static,
 {
     /// Create a builder for the job queue.
     ///
@@ -21,7 +22,7 @@ where
     /// One of `Error` enum.
     pub fn new(thread_pool_size: usize) -> Result<Self, ApiError> {
         Ok(Self {
-            jq: JobQueue::<RoutineType>::new(thread_pool_size)?,
+            jq: JobQueue::<RoutineType, Context>::new(thread_pool_size)?,
         })
     }
 
@@ -32,7 +33,7 @@ where
     ///
     /// # Returns
     /// An instance of ̀`JobQueueBuilder`.
-    pub fn backend(self, backend: impl Backend<RoutineType> + 'static) -> Self {
+    pub fn backend(self, backend: impl Backend<RoutineType, Context> + 'static) -> Self {
         let mut jq = self.jq;
 
         jq.set_backend(backend);
@@ -58,11 +59,26 @@ where
         Self { jq }
     }
 
+    /// Set the context to be passed to every routine.
+    ///
+    /// # Arguments:
+    /// * `context` - Instance to be set.
+    ///
+    /// # Returns
+    /// An instance of ̀`JobQueueBuilder`.
+    pub fn context(self, context: Context) -> Self {
+        let mut jq = self.jq;
+
+        jq.set_context(context);
+
+        Self { jq }
+    }
+
     /// Build the job queue consuming the current builder instance.
     ///
     /// # Returns
     /// An instance of ̀`JobQueue`.
-    pub fn build(self) -> JobQueue<RoutineType> {
+    pub fn build(self) -> JobQueue<RoutineType, Context> {
         self.jq
     }
 }

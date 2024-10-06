@@ -8,6 +8,14 @@ fn notification_handler(notif: Notification) {
 }
 ```
 
+**Create a context structure (even if don't need any).
+
+```rust
+struct Context {
+    ...
+}
+```
+
 **Create a routine with its arguments**
 
 ```rust
@@ -26,8 +34,18 @@ enum Routines {
 
 ```rust
 #[async_trait]
-impl Routine for Routines {
-    async fn call(&self, job_id: Uuid, messages: SharedMessageChannel) -> Result<Vec<u8>, Error> {
+impl Routine<Context> for Routines {
+    async fn call(
+        &self,
+        job_id: Uuid,
+        messages: SharedMessageChannel,
+        context: Option<Shared<Context>>,
+    ) -> Result<Vec<u8>, Error> {
+        if let Some(context) = context {
+            let ctx = context.lock().unwrap();
+            // ...
+        }
+
         match self {
             Self::MyRoutine(args) => {
                 let messages_channel = messages_channel.lock().unwrap();
@@ -65,6 +83,7 @@ let thread_pool_size = 8;
 let mut jq = JobQueueBuilder::<Routines>::new(thread_pool_size)
     .unwrap()
     .notification_handler(notification_handler)
+    .context(Context{})
     .build();
 
 jq.start().unwrap();

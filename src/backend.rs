@@ -5,12 +5,12 @@ use tokio::sync::Mutex;
 use crate::prelude::*;
 
 /// Type used to share the backend instance across threads.
-pub type SharedBackend<Routine> = Arc<Mutex<Box<dyn Backend<Routine>>>>;
+pub type SharedBackend<Routine, Context> = Arc<Mutex<Box<dyn Backend<Routine, Context>>>>;
 
 /// Backend trait that defines the behavior of the backend that is responsible for storing the job
 /// and their results.
 #[async_trait]
-pub trait Backend<Routine>: Send {
+pub trait Backend<Routine, Context>: Send {
     /// Schedule a job to be processed.
     ///
     /// # Arguments:

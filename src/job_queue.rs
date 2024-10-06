@@ -1,21 +1,11 @@
 use std::sync::mpsc::{Receiver, Sender};
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
-use tokio::runtime::{Builder, Runtime};
+use tokio::runtime::Builder;
 use tokio::sync::Mutex as AsyncMutex;
 
 use crate::memory_backend::*;
 use crate::prelude::*;
-
-/// Type used to share the runtime instance across threads.
-pub type SharedRuntime = Arc<Mutex<Runtime>>;
-
-/// Type used to share the error handler across threads.
-pub type SharedNotificationHandler = Arc<dyn Fn(Notification) + Send + Sync>;
-
-/// Type used to share the message channel.
-pub type SharedMessageChannel = Arc<Mutex<Sender<Message>>>;
 
 /// Type of messages that can be sent to the job queue.
 #[derive(PartialEq)]
@@ -68,7 +58,7 @@ pub enum State {
 }
 
 /// Structure of a job queue.
-pub struct JobQueue<RoutineType> {
+pub struct JobQueue<RoutineType, Context> {
     /// State of the job queue.
     state: State,
 
@@ -76,24 +66,28 @@ pub struct JobQueue<RoutineType> {
     tx: SharedMessageChannel,
 
     /// Channel used to receive messages from the thread of the job queue.
-    rx: Arc<Mutex<Receiver<Message>>>,
+    rx: Shared<Receiver<Message>>,
 
     /// Join handle used to wait the thread of the job queue.
     join_handle: Option<JoinHandle<()>>,
 
     /// Backend used to store the list of jobs with their results.
-    backend: SharedBackend<RoutineType>,
+    backend: SharedBackend<RoutineType, Context>,
 
     /// Tokio runtime instance with dedicated thread pool.
     runtime: SharedRuntime,
 
-    /// Notification handler function
+    /// Notification handler function.
     notification_handler: SharedNotificationHandler,
+
+    /// Context to be passed to every routine.
+    context: Option<Shared<Context>>,
 }
 
-impl<RoutineType> JobQueue<RoutineType>
+impl<RoutineType, Context> JobQueue<RoutineType, Context>
 where
-    RoutineType: Routine + Sync + 'static,
+    RoutineType: Routine<Context> + Sync + 'static,
+    Context: Send + 'static,
 {
     /// Creates a new job queue.
     ///
@@ -127,6 +121,7 @@ where
             backend: Arc::new(AsyncMutex::new(Box::new(MemoryBackend::new()))),
             runtime: Arc::new(Mutex::new(runtime)),
             notification_handler: Arc::new(|_| {}),
+            context: None,
         })
     }
 
@@ -142,7 +137,7 @@ where
     ///
     /// # Arguments:
     /// * `backend` - Backend instance that will replace the current one.
-    pub fn set_backend(&mut self, backend: impl Backend<RoutineType> + 'static) {
+    pub fn set_backend(&mut self, backend: impl Backend<RoutineType, Context> + 'static) {
         self.backend = Arc::new(AsyncMutex::new(Box::new(backend)));
     }
 
@@ -155,6 +150,14 @@ where
         handler: impl Fn(Notification) + Send + Sync + 'static,
     ) {
         self.notification_handler = Arc::new(handler);
+    }
+
+    /// Sets the context to be passed to every routine.
+    ///
+    /// # Arguments:
+    /// * `context` - Context instance to set.
+    pub fn set_context(&mut self, context: Context) {
+        self.context = Some(Arc::new(Mutex::new(context)));
     }
 
     /// Starts the job queue with async support.
@@ -359,10 +362,10 @@ where
     /// * `messages_channel` - Channel used to communicate with the queue thread.
     /// * `msg` - Message to be processed.
     fn process_message(
-        backend: SharedBackend<RoutineType>,
+        backend: SharedBackend<RoutineType, Context>,
         runtime: SharedRuntime,
         notification_handler: SharedNotificationHandler,
-        messages_channel: SharedMessageChannel,
+        messages_channel: Shared<Sender<Message>>,
         msg: Message,
     ) {
         match msg {
@@ -396,7 +399,7 @@ where
     /// # Errors
     /// One of `Error` enum.
     fn process_command(
-        backend: SharedBackend<RoutineType>,
+        backend: SharedBackend<RoutineType, Context>,
         runtime: SharedRuntime,
         notification_handler: SharedNotificationHandler,
         cmd: Cmd,
@@ -446,10 +449,10 @@ where
     /// # Errors
     /// One of `Error` enum.
     fn process_job(
-        backend: SharedBackend<RoutineType>,
+        backend: SharedBackend<RoutineType, Context>,
         runtime: SharedRuntime,
         notification_handler: SharedNotificationHandler,
-        messages_channel: SharedMessageChannel,
+        messages_channel: Shared<Sender<Message>>,
         job: Job,
     ) -> Result<(), ApiError> {
         let job_id = job.id();
