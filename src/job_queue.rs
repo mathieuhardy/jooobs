@@ -110,6 +110,7 @@ where
         // This Tokio runtime will carry the threads for each job.
         let runtime = Builder::new_multi_thread()
             .worker_threads(thread_pool_size)
+            .enable_io()
             .build()
             .map_err(|e| api_err!(e.into()))?;
 
