@@ -24,6 +24,7 @@ pub trait Backend<Routine, Context>: Send {
     ///
     /// # Arguments:
     /// * `id` - Job identifier to be run.
+    /// * `context` - Context maybe needed by the jobs.
     /// * `messages_channel` - Channel used to send messages to the queue.
     ///
     /// # Errors
@@ -31,6 +32,7 @@ pub trait Backend<Routine, Context>: Send {
     async fn run(
         &mut self,
         id: &Uuid,
+        context: Option<Shared<Context>>,
         messages_channel: SharedMessageChannel,
     ) -> Result<(), ApiError>;
 

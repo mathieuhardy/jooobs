@@ -176,6 +176,7 @@ where
         let rx = self.rx.clone();
         let notification_handler = self.notification_handler.clone();
         let messages_channel = self.tx.clone();
+        let context = self.context.clone();
 
         let handle = std::thread::spawn(move || {
             let rx = match rx.lock() {
@@ -201,6 +202,7 @@ where
                     runtime.clone(),
                     notification_handler.clone(),
                     messages_channel.clone(),
+                    context.clone(),
                     msg,
                 );
             }
@@ -360,12 +362,14 @@ where
     /// * `runtime` - Runtime carrying the thread pool.
     /// * `notification_handler` - Handler for notifications.
     /// * `messages_channel` - Channel used to communicate with the queue thread.
+    /// * `context` - Context used by the jobs.
     /// * `msg` - Message to be processed.
     fn process_message(
         backend: SharedBackend<RoutineType, Context>,
         runtime: SharedRuntime,
         notification_handler: SharedNotificationHandler,
         messages_channel: Shared<Sender<Message>>,
+        context: Option<Shared<Context>>,
         msg: Message,
     ) {
         match msg {
@@ -375,6 +379,7 @@ where
                     runtime,
                     notification_handler.clone(),
                     messages_channel.clone(),
+                    context,
                     job,
                 )
                 .map_err(|e| notification_handler(Notification::Error(*e)));
@@ -444,6 +449,7 @@ where
     /// * `runtime` - Runtime carrying the thread pool.
     /// * `notification_handler` - Handler for notifications.
     /// * `messages_channel` - Channel used to communicate with the queue thread.
+    /// * `context` - Context used by the jobs.
     /// * `job` - Job to be processed.
     ///
     /// # Errors
@@ -453,6 +459,7 @@ where
         runtime: SharedRuntime,
         notification_handler: SharedNotificationHandler,
         messages_channel: Shared<Sender<Message>>,
+        context: Option<Shared<Context>>,
         job: Job,
     ) -> Result<(), ApiError> {
         let job_id = job.id();
@@ -495,7 +502,7 @@ where
 
             // Call the routine of the job
             if backend
-                .run(&job_id, messages_channel)
+                .run(&job_id, context, messages_channel)
                 .await
                 .map_err(|e| notification_handler(Notification::Error(*e)))
                 .is_err()

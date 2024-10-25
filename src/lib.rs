@@ -56,6 +56,7 @@ mod tests {
     #[derive(Serialize, Deserialize)]
     enum Routines {
         SetFlag(SetFlagArgs),
+        CheckContext,
     }
 
     #[async_trait]
@@ -66,10 +67,6 @@ mod tests {
             messages_channel: SharedMessageChannel,
             context: Option<Shared<Context>>,
         ) -> Result<Vec<u8>, Error> {
-            if let Some(context) = context {
-                assert_eq!(&context.lock().unwrap().name, "UNIT_TESTING")
-            }
-
             match self {
                 Self::SetFlag(args) => {
                     let messages_channel = messages_channel.lock().unwrap();
@@ -96,9 +93,18 @@ mod tests {
 
                     Ok(bytes)
                 }
+
+                Self::CheckContext => {
+                    assert!(context.is_some());
+                    assert_eq!(&context.unwrap().lock().unwrap().name, "UNIT_TESTING");
+
+                    Ok(vec![])
+                }
             }
         }
     }
+
+    // TODO: test with a routine whose need a valid context
 
     #[test]
     fn nominal() {
@@ -136,6 +142,40 @@ mod tests {
             assert_eq!(status, Status::Finished);
             assert_eq!(progression.step, 2);
             assert_eq!(progression.steps, 2);
+
+            // Stop the job queue
+            jq.stop().unwrap();
+        });
+
+        jq.join().unwrap();
+    }
+
+    #[test]
+    fn context() {
+        let mut jq = JobQueueBuilder::<Routines, Context>::new(1)
+            .unwrap()
+            .notification_handler(notification_handler)
+            .context(Context {
+                name: "UNIT_TESTING".to_string(),
+            })
+            .build();
+
+        // Start queue
+        jq.start().unwrap();
+        assert_eq!(jq.state(), State::Running);
+
+        Runtime::new().unwrap().block_on(async {
+            // Create the job and push it
+            let job = Job::new(Routines::CheckContext).unwrap();
+            let job_id = job.id();
+
+            jq.enqueue(job).unwrap();
+
+            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+            // Verify that job has been processed
+            let status = jq.job_status(&job_id).await.unwrap();
+            assert_eq!(status, Status::Finished);
 
             // Stop the job queue
             jq.stop().unwrap();
