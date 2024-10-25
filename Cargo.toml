@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-async-trait = { version = "0.1.82", default-features = false }
+async-trait = { version = "0.1.72", default-features = false }
 lazy_static = { version = "1.5.0", default-features = false }
 rand = { version = "0.8.5", default-features = false, features = ["std", "std_rng"] }
 serde = { version = "1.0.209", default-features = false, features = ["derive"] }
