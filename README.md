@@ -80,7 +80,7 @@ impl Routine<Context> for Routines {
 ```rust
 let thread_pool_size = 8;
 
-let mut jq = JobQueueBuilder::<Routines>::new(thread_pool_size)
+let mut jq = JobQueueBuilder::<Routines>::new()
     .unwrap()
     .notification_handler(notification_handler)
     .context(Context{})
@@ -122,4 +122,8 @@ let progression = jq.job_progression(&job_id).await.unwrap();
 
 # TODO
 
+- Result Success/Failure
+- Expiration feature
 - Retry/clean at startup
+- Think about pipeline or sub job parallelism
+- Improve unit tests

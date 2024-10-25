@@ -10,7 +10,20 @@ where
     RoutineType: Routine<Context> + Sync + 'static,
     Context: Send + 'static,
 {
-    /// Create a builder for the job queue.
+    /// Create a builder for the job queue using a pool sized according to the system CPUs.
+    ///
+    /// # Returns
+    /// An instance of ̀`JobQueueBuilder`.
+    ///
+    /// # Errors
+    /// One of `Error` enum.
+    pub fn new() -> Result<Self, ApiError> {
+        Ok(Self {
+            jq: JobQueue::<RoutineType, Context>::new(None)?,
+        })
+    }
+
+    /// Create a builder for the job queue providing a pool size.
     ///
     /// # Arguments:
     /// * `thread_pool_size` - Size of the thread pool.
@@ -20,9 +33,9 @@ where
     ///
     /// # Errors
     /// One of `Error` enum.
-    pub fn new(thread_pool_size: usize) -> Result<Self, ApiError> {
+    pub fn new_with_pool_size(thread_pool_size: usize) -> Result<Self, ApiError> {
         Ok(Self {
-            jq: JobQueue::<RoutineType, Context>::new(thread_pool_size)?,
+            jq: JobQueue::<RoutineType, Context>::new(Some(thread_pool_size))?,
         })
     }
 

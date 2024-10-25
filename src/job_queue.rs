@@ -99,20 +99,24 @@ where
     ///
     /// # Errors
     /// One of `Error` enum.
-    pub fn new(thread_pool_size: usize) -> Result<Self, ApiError> {
-        if thread_pool_size == 0 {
-            return Err(api_err!(Error::InvalidThreadPoolSize));
+    pub fn new(thread_pool_size: Option<usize>) -> Result<Self, ApiError> {
+        // This Tokio runtime will carry the threads for each job.
+        let mut builder = Builder::new_multi_thread();
+
+        builder.enable_io();
+
+        if let Some(thread_pool_size) = thread_pool_size {
+            if thread_pool_size == 0 {
+                return Err(api_err!(Error::InvalidThreadPoolSize));
+            }
+
+            builder.worker_threads(thread_pool_size);
         }
+
+        let runtime = builder.build().map_err(|e| api_err!(e.into()))?;
 
         // Create the channel for communicating with the thread of the queue.
         let (tx, rx) = std::sync::mpsc::channel();
-
-        // This Tokio runtime will carry the threads for each job.
-        let runtime = Builder::new_multi_thread()
-            .worker_threads(thread_pool_size)
-            .enable_io()
-            .build()
-            .map_err(|e| api_err!(e.into()))?;
 
         Ok(Self {
             state: State::default(),
@@ -511,7 +515,7 @@ where
                 return;
             }
 
-            // Seet status of the job to `Status::Finished`
+            // Set status of the job to `Status::Finished`
             if backend
                 .set_status(&job_id, Status::Finished)
                 .map_err(|e| notification_handler(Notification::Error(*e)))

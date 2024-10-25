@@ -55,6 +55,7 @@ mod tests {
 
     #[derive(Serialize, Deserialize)]
     enum Routines {
+        Nop,
         SetFlag(SetFlagArgs),
         CheckContext,
     }
@@ -68,6 +69,8 @@ mod tests {
             context: Option<Shared<Context>>,
         ) -> Result<Vec<u8>, Error> {
             match self {
+                Self::Nop => Ok(vec![]),
+
                 Self::SetFlag(args) => {
                     let messages_channel = messages_channel.lock().unwrap();
 
@@ -108,7 +111,7 @@ mod tests {
 
     #[test]
     fn nominal() {
-        let mut jq = JobQueueBuilder::<Routines, Context>::new(1)
+        let mut jq = JobQueueBuilder::<Routines, Context>::new_with_pool_size(1)
             .unwrap()
             .notification_handler(notification_handler)
             .context(Context {
@@ -151,10 +154,37 @@ mod tests {
     }
 
     #[test]
+    fn no_thread_pool_size() {
+        let mut jq = JobQueueBuilder::<Routines, Context>::new().unwrap().build();
+
+        // Start queue
+        jq.start().unwrap();
+        assert_eq!(jq.state(), State::Running);
+
+        Runtime::new().unwrap().block_on(async {
+            // Create the job and push it
+            let job = Job::new(Routines::Nop).unwrap();
+            let job_id = job.id();
+
+            jq.enqueue(job).unwrap();
+
+            tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+            // Verify that job has been processed
+            let status = jq.job_status(&job_id).await.unwrap();
+            assert_eq!(status, Status::Finished);
+
+            // Stop the job queue
+            jq.stop().unwrap();
+        });
+
+        jq.join().unwrap();
+    }
+
+    #[test]
     fn context() {
-        let mut jq = JobQueueBuilder::<Routines, Context>::new(1)
+        let mut jq = JobQueueBuilder::<Routines, Context>::new_with_pool_size(1)
             .unwrap()
-            .notification_handler(notification_handler)
             .context(Context {
                 name: "UNIT_TESTING".to_string(),
             })
@@ -189,7 +219,7 @@ mod tests {
 
         #[test]
         fn not_startable() {
-            let mut jq = JobQueueBuilder::<Routines, Context>::new(1)
+            let mut jq = JobQueueBuilder::<Routines, Context>::new_with_pool_size(1)
                 .unwrap()
                 .notification_handler(notification_handler)
                 .build();
@@ -202,14 +232,14 @@ mod tests {
 
         #[test]
         fn not_joinable() {
-            let jq = JobQueueBuilder::<Routines, Context>::new(1)
+            let jq = JobQueueBuilder::<Routines, Context>::new_with_pool_size(1)
                 .unwrap()
                 .notification_handler(notification_handler)
                 .build();
 
             assert!(jq.join().is_err());
 
-            let mut jq = JobQueueBuilder::<Routines, Context>::new(1)
+            let mut jq = JobQueueBuilder::<Routines, Context>::new_with_pool_size(1)
                 .unwrap()
                 .notification_handler(notification_handler)
                 .build();
@@ -223,7 +253,7 @@ mod tests {
 
         #[test]
         fn not_stoppable() {
-            let mut jq = JobQueueBuilder::<Routines, Context>::new(1)
+            let mut jq = JobQueueBuilder::<Routines, Context>::new_with_pool_size(1)
                 .unwrap()
                 .notification_handler(notification_handler)
                 .build();
