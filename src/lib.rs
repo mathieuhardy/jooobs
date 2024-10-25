@@ -100,6 +100,8 @@ mod tests {
         }
     }
 
+    // TODO: test with a routine whose need a valid context
+
     #[test]
     fn nominal() {
         let mut jq = JobQueueBuilder::<Routines, Context>::new(1)

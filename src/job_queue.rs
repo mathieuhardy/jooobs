@@ -176,6 +176,7 @@ where
         let rx = self.rx.clone();
         let notification_handler = self.notification_handler.clone();
         let messages_channel = self.tx.clone();
+        let context = self.context.clone();
 
         let handle = std::thread::spawn(move || {
             let rx = match rx.lock() {
@@ -201,6 +202,7 @@ where
                     runtime.clone(),
                     notification_handler.clone(),
                     messages_channel.clone(),
+                    context.clone(),
                     msg,
                 );
             }
@@ -366,6 +368,7 @@ where
         runtime: SharedRuntime,
         notification_handler: SharedNotificationHandler,
         messages_channel: Shared<Sender<Message>>,
+        context: Option<Shared<Context>>,
         msg: Message,
     ) {
         match msg {
@@ -375,6 +378,7 @@ where
                     runtime,
                     notification_handler.clone(),
                     messages_channel.clone(),
+                    context,
                     job,
                 )
                 .map_err(|e| notification_handler(Notification::Error(*e)));
@@ -453,6 +457,7 @@ where
         runtime: SharedRuntime,
         notification_handler: SharedNotificationHandler,
         messages_channel: Shared<Sender<Message>>,
+        context: Option<Shared<Context>>,
         job: Job,
     ) -> Result<(), ApiError> {
         let job_id = job.id();
@@ -495,7 +500,7 @@ where
 
             // Call the routine of the job
             if backend
-                .run(&job_id, messages_channel)
+                .run(&job_id, context, messages_channel)
                 .await
                 .map_err(|e| notification_handler(Notification::Error(*e)))
                 .is_err()
