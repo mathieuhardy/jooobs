@@ -324,6 +324,17 @@ where
         self.backend.lock().await.progression(id)
     }
 
+    /// Removes a finished job from the queue.
+    ///
+    /// # Arguments
+    /// * `id` - ID of the job to be removed.
+    ///
+    /// # Errors
+    /// One of `Error` enum.
+    pub async fn remove_job(&self, id: &Uuid) -> Result<(), ApiError> {
+        self.backend.lock().await.remove(id)
+    }
+
     /// Checks if the current state allows to start the queue.
     ///
     /// # Errors

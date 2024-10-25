@@ -38,6 +38,8 @@ pub enum Error {
     InvalidThreadPoolSize,
     #[error(transparent)]
     IO(#[from] std::io::Error),
+    #[error("The job cannot be removed as it's not finished")]
+    JobNotFinished,
     #[error("Job with id {0} is not found")]
     JobNotFound(Uuid),
     #[error(transparent)]

@@ -135,6 +135,7 @@ mod tests {
             let job_id = job.id();
 
             jq.enqueue(job).unwrap();
+            assert!(jq.remove_job(&job_id).await.is_err());
 
             tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
@@ -148,6 +149,10 @@ mod tests {
             assert_eq!(status, Status::Finished(ResultStatus::Success));
             assert_eq!(progression.step, 2);
             assert_eq!(progression.steps, 2);
+
+            // Remove the finished job
+            assert!(jq.remove_job(&job_id).await.is_ok());
+            assert!(jq.job_status(&job_id).await.is_err());
 
             // Stop the job queue
             jq.stop().unwrap();

@@ -87,6 +87,24 @@ where
             .ok_or(api_err!(Error::JobNotFound(id.to_owned())))?
             .progression())
     }
+
+    fn remove(&mut self, id: &Uuid) -> Result<(), ApiError> {
+        let status = self
+            .jobs
+            .get(id)
+            .ok_or(api_err!(Error::JobNotFound(id.to_owned())))?
+            .status();
+
+        match status {
+            Status::Finished(_) => {
+                self.jobs.remove(id);
+
+                Ok(())
+            }
+
+            _ => Err(api_err!(Error::JobNotFinished)),
+        }
+    }
 }
 
 impl MemoryBackend {

@@ -107,4 +107,13 @@ pub trait Backend<Routine, Context>: Send {
     /// # Errors
     /// One of `Error` enum.
     fn progression(&self, id: &Uuid) -> Result<Progression, ApiError>;
+
+    /// Remove a job.
+    ///
+    /// # Arguments:
+    /// * `id` - Job identifier to be removed.
+    ///
+    /// # Errors
+    /// One of `Error` enum.
+    fn remove(&mut self, id: &Uuid) -> Result<(), ApiError>;
 }
