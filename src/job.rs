@@ -11,6 +11,17 @@ lazy_static! {
     static ref GROUP_ID: [u8; 6] = rand::thread_rng().gen::<[u8; 6]>();
 }
 
+/// List of result statuses of a job.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize, Serialize)]
+pub enum ResultStatus {
+    /// The job has finished successfully.
+    #[default]
+    Success,
+
+    /// The job has finished in error.
+    Error,
+}
+
 /// List of statuses of a job.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize, Serialize)]
 pub enum Status {
@@ -25,7 +36,7 @@ pub enum Status {
     Running,
 
     /// Job is finished (on success or error).
-    Finished,
+    Finished(ResultStatus),
 }
 
 /// Structure used to store the progression steps of the job.
@@ -188,7 +199,7 @@ impl Job {
                 }
             }
 
-            Status::Finished => {
+            Status::Finished(_) => {
                 if self.status != Status::Running {
                     return Err(api_err!(Error::InvalidJobStatusTransition((
                         self.status,

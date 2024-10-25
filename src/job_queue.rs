@@ -506,25 +506,27 @@ where
             notification_handler(Notification::Status(job_id, Status::Running));
 
             // Call the routine of the job
-            if backend
+            let result_status = match backend
                 .run(&job_id, context, messages_channel)
                 .await
                 .map_err(|e| notification_handler(Notification::Error(*e)))
-                .is_err()
             {
-                return;
-            }
+                Ok(_) => ResultStatus::Success,
+                _ => ResultStatus::Error,
+            };
 
             // Set status of the job to `Status::Finished`
+            let status = Status::Finished(result_status);
+
             if backend
-                .set_status(&job_id, Status::Finished)
+                .set_status(&job_id, status)
                 .map_err(|e| notification_handler(Notification::Error(*e)))
                 .is_err()
             {
                 return;
             }
 
-            notification_handler(Notification::Status(job_id, Status::Finished));
+            notification_handler(Notification::Status(job_id, status));
         });
 
         Ok(())

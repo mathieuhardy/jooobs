@@ -122,7 +122,6 @@ let progression = jq.job_progression(&job_id).await.unwrap();
 
 # TODO
 
-- Result Success/Failure
 - Expiration feature
 - Retry/clean at startup
 - Think about pipeline or sub job parallelism
