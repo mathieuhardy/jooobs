@@ -108,6 +108,18 @@ pub trait Backend<Routine, Context>: Send {
     /// One of `Error` enum.
     fn progression(&self, id: &Uuid) -> Result<Progression, ApiError>;
 
+    /// Get the expire policy of a job.
+    ///
+    /// # Arguments:
+    /// * `id` - Job identifier to be fetched.
+    ///
+    /// # Returns
+    /// The `ExpirePolicy` of the job.
+    ///
+    /// # Errors
+    /// One of `Error` enum.
+    fn expire_policy(&self, id: &Uuid) -> Result<ExpirePolicy, ApiError>;
+
     /// Remove a job.
     ///
     /// # Arguments:

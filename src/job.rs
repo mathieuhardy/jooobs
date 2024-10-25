@@ -11,6 +11,21 @@ lazy_static! {
     static ref GROUP_ID: [u8; 6] = rand::thread_rng().gen::<[u8; 6]>();
 }
 
+/// List of expiry configurations available for a job.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize, Serialize)]
+pub enum ExpirePolicy {
+    /// The job is only removed manually.
+    #[default]
+    Manual,
+
+    /// The job is removed once it's result is fetched.
+    OnResultFetch,
+
+    /// The job is removed after a specified duration.
+    // TODO: add duration parameter
+    Timeout,
+}
+
 /// List of result statuses of a job.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Deserialize, Serialize)]
 pub enum ResultStatus {
@@ -37,6 +52,9 @@ pub enum Status {
 
     /// Job is finished (on success or error).
     Finished(ResultStatus),
+
+    /// Job has been removed from the job queue.
+    Removed,
 }
 
 /// Structure used to store the progression steps of the job.
@@ -114,10 +132,14 @@ pub struct Job {
 
     /// Current step (progression).
     step: u64,
+
+    /// Expire policy for this job.
+    expire_policy: ExpirePolicy,
 }
 
 impl Job {
     /// Creates a new job given a routine to be executed.
+    /// The job will be only removed by a user call to `JobQueue::remove_job`.
     ///
     /// # Arguments
     /// * `routine` - Routine to be called.
@@ -128,6 +150,24 @@ impl Job {
     /// # Errors
     /// One of `Error` enum.
     pub fn new<Context>(routine: impl Routine<Context>) -> Result<Self, ApiError> {
+        Self::new_with_expire(routine, ExpirePolicy::default())
+    }
+
+    /// Creates a new job given a routine to be executed and an expire policy.
+    ///
+    /// # Arguments
+    /// * `routine` - Routine to be called.
+    /// * `expire_policy` - Policy to be applied for job removal.
+    ///
+    /// # Returns
+    /// An `Job` instance.
+    ///
+    /// # Errors
+    /// One of `Error` enum.
+    pub fn new_with_expire<Context>(
+        routine: impl Routine<Context>,
+        expire_policy: ExpirePolicy,
+    ) -> Result<Self, ApiError> {
         Ok(Self {
             id: Uuid::now_v1(&GROUP_ID),
             routine: serde_json::to_string(&routine).map_err(|e| api_err!(e.into()))?,
@@ -142,6 +182,7 @@ impl Job {
             },
             steps: 0,
             step: 0,
+            expire_policy,
         })
     }
 
@@ -209,6 +250,8 @@ impl Job {
                     self.payload.timestamps.finished = SystemTime::now();
                 }
             }
+
+            _ => return Err(api_err!(Error::InvalidJobStatus)),
         }
 
         self.status = status;
@@ -286,6 +329,14 @@ impl Job {
             step: self.step,
             steps: self.steps,
         }
+    }
+
+    /// Get the expire policy of the job.
+    ///
+    /// # Returns
+    /// The `ExpirePolicy` of the job.
+    pub fn expire_policy(&self) -> ExpirePolicy {
+        self.expire_policy
     }
 
     /// Call the underlying routine of the job.

@@ -307,7 +307,19 @@ where
     /// # Errors
     /// One of `Error` enum.
     pub async fn job_result(&self, id: &Uuid) -> Result<Vec<u8>, ApiError> {
-        Ok(self.backend.lock().await.result(id)?.to_vec())
+        let mut backend = self.backend.lock().await;
+
+        let result = backend.result(id)?.to_vec();
+
+        if backend.expire_policy(id)? == ExpirePolicy::OnResultFetch {
+            if let Status::Finished(_) = backend.status(id)? {
+                backend.remove(id)?;
+
+                (self.notification_handler)(Notification::Status(id.to_owned(), Status::Removed));
+            }
+        }
+
+        Ok(result)
     }
 
     /// Get the progression of a job.
@@ -332,7 +344,11 @@ where
     /// # Errors
     /// One of `Error` enum.
     pub async fn remove_job(&self, id: &Uuid) -> Result<(), ApiError> {
-        self.backend.lock().await.remove(id)
+        self.backend.lock().await.remove(id)?;
+
+        (self.notification_handler)(Notification::Status(id.to_owned(), Status::Removed));
+
+        Ok(())
     }
 
     /// Checks if the current state allows to start the queue.

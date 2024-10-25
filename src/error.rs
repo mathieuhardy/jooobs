@@ -32,6 +32,8 @@ pub enum Error {
     Custom(String),
     #[error(transparent)]
     GenericError(#[from] Box<dyn std::error::Error>),
+    #[error("Invalid job status")]
+    InvalidJobStatus,
     #[error("Invalid job status transition: {0:?}")]
     InvalidJobStatusTransition((Status, Status)),
     #[error("Invalid thread pool size")]

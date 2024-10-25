@@ -224,6 +224,42 @@ mod tests {
         jq.join().unwrap();
     }
 
+    mod expire {
+        use super::*;
+
+        #[test]
+        fn expire_on_fetch() {
+            let mut jq = JobQueueBuilder::<Routines, Context>::new().unwrap().build();
+
+            // Start queue
+            jq.start().unwrap();
+            assert_eq!(jq.state(), State::Running);
+
+            Runtime::new().unwrap().block_on(async {
+                // Create the job and push it
+                let job = Job::new_with_expire(Routines::Nop, ExpirePolicy::OnResultFetch).unwrap();
+                let job_id = job.id();
+
+                jq.enqueue(job).unwrap();
+
+                tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+                // Verify that job has been processed
+                let status = jq.job_status(&job_id).await.unwrap();
+                assert_eq!(status, Status::Finished(ResultStatus::Success));
+
+                // Fetch the result and verify that the job no longer exists after that
+                let _ = jq.job_result(&job_id).await.unwrap();
+                assert!(jq.job_status(&job_id).await.is_err());
+
+                // Stop the job queue
+                jq.stop().unwrap();
+            });
+
+            jq.join().unwrap();
+        }
+    }
+
     mod errors {
         use super::*;
 

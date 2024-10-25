@@ -88,6 +88,14 @@ where
             .progression())
     }
 
+    fn expire_policy(&self, id: &Uuid) -> Result<ExpirePolicy, ApiError> {
+        Ok(self
+            .jobs
+            .get(id)
+            .ok_or(api_err!(Error::JobNotFound(id.to_owned())))?
+            .expire_policy())
+    }
+
     fn remove(&mut self, id: &Uuid) -> Result<(), ApiError> {
         let status = self
             .jobs
