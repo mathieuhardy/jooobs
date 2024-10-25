@@ -258,6 +258,44 @@ mod tests {
 
             jq.join().unwrap();
         }
+
+        #[test]
+        fn expire_on_timeout() {
+            let mut jq = JobQueueBuilder::<Routines, Context>::new().unwrap().build();
+
+            // Start queue
+            jq.start().unwrap();
+            assert_eq!(jq.state(), State::Running);
+
+            Runtime::new().unwrap().block_on(async {
+                let ms = 20;
+
+                // Create the job and push it
+                let job = Job::new_with_expire(
+                    Routines::Nop,
+                    ExpirePolicy::Timeout(std::time::Duration::from_millis(ms)),
+                )
+                .unwrap();
+
+                let job_id = job.id();
+
+                jq.enqueue(job).unwrap();
+
+                tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+                // Verify that job is still present
+                assert!(jq.job_status(&job_id).await.is_ok());
+
+                // Wait for the timeout to be reached and check again
+                tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+                assert!(jq.job_status(&job_id).await.is_err());
+
+                // Stop the job queue
+                jq.stop().unwrap();
+            });
+
+            jq.join().unwrap();
+        }
     }
 
     mod errors {

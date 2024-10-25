@@ -64,4 +64,6 @@ pub enum Error {
     ProgressionOverflow,
     #[error("Queue is stopped")]
     Stopped,
+    #[error("Error during waiting for timeout ({0})")]
+    Timeout(String),
 }

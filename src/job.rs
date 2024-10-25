@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use lazy_static::lazy_static;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use crate::prelude::*;
 
@@ -22,8 +22,7 @@ pub enum ExpirePolicy {
     OnResultFetch,
 
     /// The job is removed after a specified duration.
-    // TODO: add duration parameter
-    Timeout,
+    Timeout(Duration),
 }
 
 /// List of result statuses of a job.

@@ -2,7 +2,8 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use tokio::runtime::Builder;
-use tokio::sync::Mutex as AsyncMutex;
+use tokio::sync::{oneshot, Mutex as AsyncMutex};
+use tokio::time::timeout;
 
 use crate::memory_backend::*;
 use crate::prelude::*;
@@ -104,6 +105,7 @@ where
         let mut builder = Builder::new_multi_thread();
 
         builder.enable_io();
+        builder.enable_time();
 
         if let Some(thread_pool_size) = thread_pool_size {
             if thread_pool_size == 0 {
@@ -496,15 +498,17 @@ where
     ) -> Result<(), ApiError> {
         let job_id = job.id();
 
-        let runtime = runtime
+        let rt = runtime
             .lock()
             .map_err(|e| Error::CannotAccessRuntime(e.to_string()))?;
 
-        runtime.block_on(async {
-            let mut backend = backend.lock().await;
+        let runtime = runtime.clone();
+
+        rt.block_on(async {
+            let mut bk = backend.lock().await;
 
             // Push the job in the backend (to be stored)
-            if backend
+            if bk
                 .schedule(job)
                 .map_err(|e| notification_handler(Notification::Error(*e)))
                 .is_err()
@@ -513,16 +517,17 @@ where
             }
 
             // Set its status to ready (can be processed)
-            let _ = backend
+            let _ = bk
                 .set_status(&job_id, Status::Ready)
                 .map_err(|e| notification_handler(Notification::Error(*e)));
         });
 
-        runtime.spawn(async move {
-            let mut backend = backend.lock().await;
+        rt.spawn(async move {
+            let mut bk = backend.lock().await;
+            let backend = backend.clone();
 
-            // Seet status of the job to `Status::Running`
-            if backend
+            // Set status of the job to `Status::Running`
+            if bk
                 .set_status(&job_id, Status::Running)
                 .map_err(|e| notification_handler(Notification::Error(*e)))
                 .is_err()
@@ -533,7 +538,7 @@ where
             notification_handler(Notification::Status(job_id, Status::Running));
 
             // Call the routine of the job
-            let result_status = match backend
+            let result_status = match bk
                 .run(&job_id, context, messages_channel)
                 .await
                 .map_err(|e| notification_handler(Notification::Error(*e)))
@@ -545,7 +550,7 @@ where
             // Set status of the job to `Status::Finished`
             let status = Status::Finished(result_status);
 
-            if backend
+            if bk
                 .set_status(&job_id, status)
                 .map_err(|e| notification_handler(Notification::Error(*e)))
                 .is_err()
@@ -554,6 +559,46 @@ where
             }
 
             notification_handler(Notification::Status(job_id, status));
+
+            // Run expiration timer if needed
+            let policy = match bk.expire_policy(&job_id) {
+                Ok(policy) => policy,
+                Err(e) => {
+                    notification_handler(Notification::Error(*e));
+                    return;
+                }
+            };
+
+            let duration = match policy {
+                ExpirePolicy::Timeout(duration) => duration,
+                _ => return,
+            };
+
+            let rt = match runtime
+                .lock()
+                .map_err(|e| Error::CannotAccessRuntime(e.to_string()))
+            {
+                Ok(rt) => rt,
+                _ => return,
+            };
+
+            rt.spawn(async move {
+                // Block until timeout is reached (rx channel won't receive anything so we'll reach
+                // the timeout's duration). `timeout` will return an error if the timeout is
+                // reached so just skip the result.
+                let (_tx, rx) = oneshot::channel::<bool>();
+
+                let _ = timeout(duration, rx).await;
+
+                // Remove job from the backend
+                let _ = backend
+                    .lock()
+                    .await
+                    .remove(&job_id)
+                    .map_err(|e| notification_handler(Notification::Error(*e)));
+
+                notification_handler(Notification::Status(job_id.to_owned(), Status::Removed));
+            });
         });
 
         Ok(())
