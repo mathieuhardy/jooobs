@@ -87,6 +87,9 @@ pub struct Timestamps {
 
     /// Timestamp at which the job is finished.
     pub finished: SystemTime,
+
+    /// Timestamp at which the job is considered expired.
+    pub expired: Option<SystemTime>,
 }
 
 /// Trait that must be derived for the list of possible routines handled by the jobs.
@@ -179,6 +182,7 @@ impl Job {
                     enqueued: SystemTime::now(),
                     started: SystemTime::UNIX_EPOCH,
                     finished: SystemTime::UNIX_EPOCH,
+                    expired: None,
                 },
                 result: vec![],
             },
@@ -250,7 +254,14 @@ impl Job {
                         status
                     ))));
                 } else {
-                    self.payload.timestamps.finished = SystemTime::now();
+                    let now = SystemTime::now();
+
+                    self.payload.timestamps.finished = now;
+
+                    // If expire policy is set to timeout, then store the time of expiration
+                    if let ExpirePolicy::Timeout(duration) = self.expire_policy {
+                        self.payload.timestamps.expired = Some(now + duration);
+                    }
                 }
             }
 
@@ -340,6 +351,18 @@ impl Job {
     /// The `ExpirePolicy` of the job.
     pub fn expire_policy(&self) -> ExpirePolicy {
         self.expire_policy
+    }
+
+    /// Check if the job is expired.
+    ///
+    /// # Returns
+    ///  `true` if expired, `false`otherwise.
+    pub fn is_expired(&self) -> bool {
+        if let Some(expired) = self.payload.timestamps.expired {
+            SystemTime::now() >= expired
+        } else {
+            false
+        }
     }
 
     /// Get the private data owned by the job.

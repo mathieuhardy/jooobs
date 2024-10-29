@@ -20,6 +20,8 @@ pub enum Error {
     AlreadyRunning,
     #[error("Cannot access error handler ({0})")]
     CannotAccessErrorHandler(String),
+    #[error("Cannot access expirations list ({0})")]
+    CannotAccessExpirations(String),
     #[error("Cannot access receiver ({0})")]
     CannotAccessReceiver(String),
     #[error("Cannot access runtime ({0})")]
@@ -28,6 +30,8 @@ pub enum Error {
     CannotAccessSender(String),
     #[error("Cannot join the queue thread")]
     CannotJoinThread,
+    #[error("Cannot send message to the queue ({0})")]
+    CannotSendMessage(String),
     #[error("{0}")]
     Custom(String),
     #[error(transparent)]
