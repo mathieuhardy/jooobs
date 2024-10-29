@@ -56,6 +56,8 @@ pub enum Error {
     MissingJoinHandle,
     #[error("Missing notification handler")]
     MissingNotificationHandler,
+    #[error("Missing private data in job")]
+    MissingPrivateData,
     #[error("Queue is not started")]
     NotStarted,
     #[error("Queue is not stopping")]

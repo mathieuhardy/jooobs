@@ -37,7 +37,7 @@ enum Routines {
 impl Routine<Context> for Routines {
     async fn call(
         &self,
-        job_id: Uuid,
+        job: &Job,
         messages: SharedMessageChannel,
         context: Option<Shared<Context>>,
     ) -> Result<Vec<u8>, Error> {
@@ -53,7 +53,7 @@ impl Routine<Context> for Routines {
 
                 // Set the number of steps for this routine
                 messages_channel
-                    .send(Message::Command(Cmd::SetSteps(job_id, steps_count)))
+                    .send(Message::Command(Cmd::SetSteps(job.id(), steps_count)))
                     .unwrap();
 
                 // Run long process
@@ -61,7 +61,7 @@ impl Routine<Context> for Routines {
                     // ...
 
                     messages_channel
-                        .send(Message::Command(Cmd::SetStep(job_id, idx)))
+                        .send(Message::Command(Cmd::SetStep(job.id(), idx)))
                         .unwrap();
                 }
 
@@ -124,6 +124,27 @@ let status = jq.job_status(&job_id).await.unwrap();
 
 // Get progression of the job (if provided by the job itself)
 let progression = jq.job_progression(&job_id).await.unwrap();
+```
+
+**Attach private data to the job**
+
+You can attach private data to a job. This can be metadata or whatever you need as soon as it's serializable.
+
+```rust
+struct PrivateData {
+    owner_id: String,
+}
+
+// ...
+
+let mut job = Job::new(routine).unwrap();
+
+job.set_private_data(Private{ owner_id: "id-0013".to_string()});
+
+// When the `call` function will be called, the job is provided and you can fetch it like this:
+
+let data: PrivateData = job.private_data().unwrap();
+assert_eq!(&data.owner_id, "id-0013");
 ```
 
 **Override the backend**

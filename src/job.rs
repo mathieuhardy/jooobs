@@ -105,7 +105,7 @@ pub trait Routine<Context>: for<'a> Deserialize<'a> + Serialize + Send {
     /// One of `Error` enum.
     async fn call(
         &self,
-        job_id: Uuid,
+        job: &Job,
         messages_channel: SharedMessageChannel,
         context: Option<Shared<Context>>,
     ) -> Result<Vec<u8>, Error>;
@@ -134,6 +134,9 @@ pub struct Job {
 
     /// Expire policy for this job.
     expire_policy: ExpirePolicy,
+
+    /// Private data.
+    private_data: Option<String>,
 }
 
 impl Job {
@@ -182,6 +185,7 @@ impl Job {
             steps: 0,
             step: 0,
             expire_policy,
+            private_data: None,
         })
     }
 
@@ -338,6 +342,39 @@ impl Job {
         self.expire_policy
     }
 
+    /// Get the private data owned by the job.
+    ///
+    /// # Returns
+    /// The private data casted to the type provided.
+    ///
+    /// # Errors
+    /// One of `Error` enum.
+    pub fn private_data<T>(&self) -> Result<T, ApiError>
+    where
+        T: for<'a> Deserialize<'a> + Serialize,
+    {
+        let data = self.private_data.clone().ok_or(Error::MissingPrivateData)?;
+        let data: T = serde_json::from_str(&data).map_err(|e| api_err!(e.into()))?;
+
+        Ok(data)
+    }
+
+    /// Set the private data owned by the job.
+    ///
+    /// # Arguments
+    /// * `value` - Serializable value to be stored.
+    ///
+    /// # Errors
+    /// One of `Error` enum.
+    pub fn set_private_data<'a>(
+        &mut self,
+        value: impl Deserialize<'a> + Serialize,
+    ) -> Result<(), ApiError> {
+        self.private_data = Some(serde_json::to_string(&value).map_err(|e| api_err!(e.into()))?);
+
+        Ok(())
+    }
+
     /// Call the underlying routine of the job.
     ///
     /// # Arguments
@@ -354,7 +391,7 @@ impl Job {
         let routine: T = serde_json::from_str(&self.routine).map_err(|e| api_err!(e.into()))?;
 
         // Call the routine
-        let result = routine.call(self.id(), messages_channel, context).await?;
+        let result = routine.call(self, messages_channel, context).await?;
 
         // Store the result
         self.set_result(result)
