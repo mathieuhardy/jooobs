@@ -337,8 +337,12 @@ mod tests {
             assert_eq!(jq.state(), State::Running);
 
             Runtime::new().unwrap().block_on(async {
+                let timeout = std::time::Duration::from_secs(1);
+
                 // Create the job and push it
-                let job = Job::new_with_expire(Routines::Nop, ExpirePolicy::OnResultFetch).unwrap();
+                let job = Job::new_with_expire(Routines::Nop, ExpirePolicy::OnResultFetch(timeout))
+                    .unwrap();
+
                 let job_id = job.id();
 
                 jq.enqueue(job).unwrap();
