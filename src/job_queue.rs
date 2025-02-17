@@ -35,15 +35,15 @@ pub enum Cmd {
 
 /// Type of notifications that can be sent from the job queue.
 #[derive(Debug)]
-pub enum Notification {
+pub enum Notification<Context> {
     /// Error notification.
     Error(Error),
 
     /// Update of the progression of a job.
-    Progression(Uuid, Progression),
+    Progression(Option<Shared<Context>>, Uuid, Progression),
 
     /// Update of the status of a job.
-    Status(Uuid, Status),
+    Status(Option<Shared<Context>>, Uuid, Status),
 }
 
 /// States of the tread running the job queue.
@@ -84,7 +84,7 @@ pub struct JobQueue<RoutineType, Context> {
     runtime: SharedRuntime,
 
     /// Notification handler function.
-    notification_handler: SharedNotificationHandler,
+    notification_handler: SharedNotificationHandler<Context>,
 
     /// Context to be passed to every routine.
     context: Option<Shared<Context>>,
@@ -160,7 +160,7 @@ where
     /// * `handler` - Handler instance that will replace the current one.
     pub fn set_notification_handler(
         &mut self,
-        handler: impl Fn(Notification) + Send + Sync + 'static,
+        handler: impl Fn(Notification<Context>) + Send + Sync + 'static,
     ) {
         self.notification_handler = Arc::new(handler);
     }
@@ -360,7 +360,11 @@ where
             if let Status::Finished(_) = backend.status(id)? {
                 backend.remove(id)?;
 
-                (self.notification_handler)(Notification::Status(id.to_owned(), Status::Removed));
+                (self.notification_handler)(Notification::Status(
+                    self.context.clone(),
+                    id.to_owned(),
+                    Status::Removed,
+                ));
             }
         }
 
@@ -416,7 +420,11 @@ where
     pub async fn remove_job(&self, id: &Uuid) -> Result<(), ApiError> {
         self.backend.lock().await.remove(id)?;
 
-        (self.notification_handler)(Notification::Status(id.to_owned(), Status::Removed));
+        (self.notification_handler)(Notification::Status(
+            self.context.clone(),
+            id.to_owned(),
+            Status::Removed,
+        ));
 
         Ok(())
     }
@@ -469,7 +477,7 @@ where
     fn process_message(
         backend: SharedBackend<RoutineType, Context>,
         runtime: SharedRuntime,
-        notification_handler: SharedNotificationHandler,
+        notification_handler: SharedNotificationHandler<Context>,
         messages_channel: Shared<Sender<Message>>,
         context: Option<Shared<Context>>,
         msg: Message,
@@ -488,9 +496,14 @@ where
             }
 
             Message::Command(cmd) => {
-                let _ =
-                    JobQueue::process_command(backend, runtime, notification_handler.clone(), cmd)
-                        .map_err(|e| notification_handler(Notification::Error(*e)));
+                let _ = JobQueue::process_command(
+                    backend,
+                    runtime,
+                    notification_handler.clone(),
+                    context,
+                    cmd,
+                )
+                .map_err(|e| notification_handler(Notification::Error(*e)));
             }
         }
     }
@@ -501,6 +514,7 @@ where
     /// * `backend` - Backend instance used to process the jobs.
     /// * `runtime` - Runtime carrying the thread pool.
     /// * `notification_handler` - Handler for notifications.
+    /// * `context` - Context used by the jobs.
     /// * `cmd` - Command to be processed.
     ///
     /// # Errors
@@ -508,7 +522,8 @@ where
     fn process_command(
         backend: SharedBackend<RoutineType, Context>,
         runtime: SharedRuntime,
-        notification_handler: SharedNotificationHandler,
+        notification_handler: SharedNotificationHandler<Context>,
+        context: Option<Shared<Context>>,
         cmd: Cmd,
     ) -> Result<(), ApiError> {
         let runtime = runtime
@@ -526,6 +541,7 @@ where
                     {
                         for job_id in job_ids {
                             notification_handler(Notification::Status(
+                                context.clone(),
                                 job_id.to_owned(),
                                 Status::Removed,
                             ));
@@ -538,7 +554,7 @@ where
                         .set_steps(&job_id, steps)
                         .map_err(|e| notification_handler(Notification::Error(*e)))
                     {
-                        notification_handler(Notification::Progression(job_id, p));
+                        notification_handler(Notification::Progression(context, job_id, p));
                     }
                 }
 
@@ -547,7 +563,7 @@ where
                         .set_step(&job_id, step)
                         .map_err(|e| notification_handler(Notification::Error(*e)))
                     {
-                        notification_handler(Notification::Progression(job_id, p));
+                        notification_handler(Notification::Progression(context, job_id, p));
                     }
                 }
 
@@ -573,7 +589,7 @@ where
     fn process_job(
         backend: SharedBackend<RoutineType, Context>,
         runtime: SharedRuntime,
-        notification_handler: SharedNotificationHandler,
+        notification_handler: SharedNotificationHandler<Context>,
         messages_channel: Shared<Sender<Message>>,
         context: Option<Shared<Context>>,
         job: Job,
@@ -614,7 +630,11 @@ where
                 return;
             }
 
-            notification_handler(Notification::Status(job_id, Status::Running));
+            notification_handler(Notification::Status(
+                context.clone(),
+                job_id,
+                Status::Running,
+            ));
 
             // Call the routine of the job
             let mut result_status = ResultStatus::Error;
@@ -628,7 +648,7 @@ where
             };
 
             let result = job
-                .run::<RoutineType, Context>(messages_channel, context)
+                .run::<RoutineType, Context>(messages_channel, context.clone())
                 .await
                 .map_err(|e| notification_handler(Notification::Error(*e)));
 
@@ -657,7 +677,7 @@ where
                 return;
             }
 
-            notification_handler(Notification::Status(job_id, status));
+            notification_handler(Notification::Status(context, job_id, status));
         });
 
         Ok(())

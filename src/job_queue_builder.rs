@@ -63,7 +63,7 @@ where
     /// An instance of ̀`JobQueueBuilder`.
     pub fn notification_handler(
         self,
-        handler: impl Fn(Notification) + Send + Sync + 'static,
+        handler: impl Fn(Notification<Context>) + Send + Sync + 'static,
     ) -> Self {
         let mut jq = self.jq;
 

@@ -10,14 +10,20 @@ pub mod types;
 #[cfg(test)]
 mod tests {
     use async_trait::async_trait;
+    use lazy_static::lazy_static;
     use serde_json::Value;
+    use std::collections::HashMap;
     use std::sync::Mutex;
     use tokio::runtime::Runtime;
 
     use crate::prelude::*;
 
+    lazy_static! {
+        static ref COUNTERS: Mutex<HashMap<Uuid, u32>> = Mutex::new(HashMap::new());
+    }
+
     static FLAG: Mutex<bool> = Mutex::new(false);
-    static COUNTER: Mutex<u32> = Mutex::new(0);
+    // static COUNTERS: HashMap<Uuid, Mutex<u32>> = Mutex::new(0);
 
     struct Context {
         name: String,
@@ -28,30 +34,30 @@ mod tests {
         value: u8,
     }
 
-    fn notification_handler(notification: Notification) {
+    fn notification_handler(notification: Notification<Context>) {
         match notification {
             Notification::Error(e) => println!("ERR: {e}"),
 
-            Notification::Progression(id, progression) => {
+            Notification::Progression(_ctx, id, progression) => {
                 println!("PROGRESSION({id}): {progression:#?}")
             }
 
-            Notification::Status(id, status) => {
+            Notification::Status(_ctx, id, status) => {
                 println!("STATUS({id}): {status:#?}")
             }
         }
     }
 
-    fn reset_counter() {
-        *COUNTER.lock().unwrap() = 0;
+    fn increment_counter(uuid: Uuid) {
+        if let Some(counter) = COUNTERS.lock().unwrap().get_mut(&uuid) {
+            *counter += 1;
+        }
     }
 
-    fn increment_counter() {
-        *COUNTER.lock().unwrap() += 1;
-    }
-
-    fn check_counter(expected: u32) {
-        assert_eq!(*COUNTER.lock().unwrap(), expected);
+    fn check_counter(uuid: Uuid, expected: u32) {
+        if let Some(counter) = COUNTERS.lock().unwrap().get(&uuid) {
+            assert_eq!(*counter, expected);
+        }
     }
 
     fn reset_flag() {
@@ -72,6 +78,11 @@ mod tests {
     }
 
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+    struct SetCounterArgs {
+        counter_id: Uuid,
+    }
+
+    #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
     struct CheckPrivateDataArgs {
         value: u8,
         expect_no_data: bool,
@@ -88,7 +99,7 @@ mod tests {
         CheckPrivateData(CheckPrivateDataArgs),
         Nop,
         RaiseError,
-        SetCounter,
+        SetCounter(SetCounterArgs),
         SetFlag(SetFlagArgs),
         Sleep(SleepArgs),
     }
@@ -126,8 +137,8 @@ mod tests {
                     return Err(Error::Custom("This is a failure".to_string()));
                 }
 
-                Self::SetCounter => {
-                    increment_counter();
+                Self::SetCounter(args) => {
+                    increment_counter(args.counter_id);
 
                     Ok(vec![])
                 }
@@ -518,7 +529,8 @@ mod tests {
         fn enqueue_10() {
             let mut jq = JobQueueBuilder::<Routines, Context>::new().unwrap().build();
 
-            reset_counter();
+            let counter_id = Uuid::new_v4();
+            COUNTERS.lock().unwrap().insert(counter_id, 0);
 
             // Start queue
             jq.start().unwrap();
@@ -527,7 +539,8 @@ mod tests {
             Runtime::new().unwrap().block_on(async {
                 for _ in 0..10 {
                     // Create the jobs and push them
-                    let job = Job::new(Routines::SetCounter).unwrap();
+                    let job =
+                        Job::new(Routines::SetCounter(SetCounterArgs { counter_id })).unwrap();
 
                     jq.enqueue(job).unwrap();
                 }
@@ -535,7 +548,7 @@ mod tests {
                 tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
                 // Verify that job has been processed
-                check_counter(10);
+                check_counter(counter_id, 10);
 
                 // Stop the job queue
                 jq.stop().unwrap();
@@ -548,7 +561,8 @@ mod tests {
         fn enqueue_100() {
             let mut jq = JobQueueBuilder::<Routines, Context>::new().unwrap().build();
 
-            reset_counter();
+            let counter_id = Uuid::new_v4();
+            COUNTERS.lock().unwrap().insert(counter_id, 0);
 
             // Start queue
             jq.start().unwrap();
@@ -557,7 +571,8 @@ mod tests {
             Runtime::new().unwrap().block_on(async {
                 for _ in 0..100 {
                     // Create the jobs and push them
-                    let job = Job::new(Routines::SetCounter).unwrap();
+                    let job =
+                        Job::new(Routines::SetCounter(SetCounterArgs { counter_id })).unwrap();
 
                     jq.enqueue(job).unwrap();
                 }
@@ -565,7 +580,7 @@ mod tests {
                 tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
                 // Verify that job has been processed
-                check_counter(100);
+                check_counter(counter_id, 100);
 
                 // Stop the job queue
                 jq.stop().unwrap();
@@ -582,7 +597,8 @@ mod tests {
         fn get_all() {
             let mut jq = JobQueueBuilder::<Routines, Context>::new().unwrap().build();
 
-            reset_counter();
+            let counter_id = Uuid::new_v4();
+            COUNTERS.lock().unwrap().insert(counter_id, 0);
 
             // Start queue
             jq.start().unwrap();
@@ -607,12 +623,12 @@ mod tests {
                 assert_eq!(fetched.len(), 10);
 
                 for job in jobs {
-                    assert!(fetched.iter().find(|e| e.id() == job.id()).is_some());
+                    assert!(fetched.iter().any(|e| e.id() == job.id()));
                 }
 
                 for job in fetched {
                     if job.routine::<Routines, Context>().unwrap() != Routines::Nop {
-                        assert!(false);
+                        panic!();
                     }
                 }
 

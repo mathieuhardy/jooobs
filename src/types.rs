@@ -8,7 +8,7 @@ use crate::job_queue::{Message, Notification};
 pub type Shared<T> = Arc<Mutex<T>>;
 
 /// Type used to share the error handler across threads.
-pub type SharedNotificationHandler = Arc<dyn Fn(Notification) + Send + Sync>;
+pub type SharedNotificationHandler<Context> = Arc<dyn Fn(Notification<Context>) + Send + Sync>;
 
 /// Type used to share the message channel.
 pub type SharedMessageChannel = Arc<Mutex<Sender<Message>>>;
